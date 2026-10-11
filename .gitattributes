@@ -1,0 +1,20 @@
+# Normalize line endings to LF everywhere; this repo is UTF-8, LF, no BOM.
+# docs/SPEC.md A1 makes this normative, and `cvpw lint` enforces it in projects.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.mp3 binary
+*.wav binary
+*.flac binary
+*.mp4 binary
+*.mov binary
+*.f32  binary
+
+# Generated / heavyweight artifacts that must never be committed from a project.
+render/**         linguist-generated=true
+review/**         linguist-generated=true
+analysis/*.f32    linguist-generated=true

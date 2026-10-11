@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/qa-report.schema.json",
+  "title": "cvpw qa/report.json",
+  "description": "The gate suite's result. Derived, carries a run record, and is never an input to a stage. Check ids and thresholds are defined once in docs/QA.md; this file records what was observed against them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "run", "checks", "ok"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt"],
+      "properties": {
+        "startedAt": { "type": "string", "description": "ISO 8601. Permitted here and only in the three report artifacts (docs/SPEC.md A6)." },
+        "durationSec": { "type": "number", "minimum": 0 },
+        "profile": { "type": "string", "enum": ["all", "render", "deliver"] },
+        "only": { "type": "string", "description": "Block id, when the run was restricted to one block's range." },
+        "host": { "type": "string" },
+        "cvpwVersion": { "type": "string" }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ok", "status"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "A check id from docs/QA.md. An id that does not exist there is a bug: thresholds are defined once."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "skipped", "waived"],
+            "description": "`skipped` requires a reason and is never a pass. A project that has skipped its way to a green report has not been verified."
+          },
+          "ok": { "type": "boolean" },
+          "threshold": {
+            "type": "string",
+            "description": "The threshold AS READ from its declared source, so a report can be audited without opening docs/QA.md."
+          },
+          "observed": { "type": "string" },
+          "offenders": {
+            "type": "array",
+            "description": "Concrete instances that justify the verdict: times, shot ids, asset paths. A failure with no offenders is not actionable.",
+            "items": { "type": "string" }
+          },
+          "reason": { "type": "string", "description": "Required when status is `skipped` or `waived`." },
+          "waivedBy": { "type": ["string", "null"], "description": "The exemption key in qa/exemptions.json, when waived." },
+          "elapsedMs": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "ok": { "type": "boolean", "description": "True only when no check failed. A skipped check does not make this false, which is why `status` exists." },
+    "waived": {
+      "type": "array",
+      "description": "Every waiver used in this run, copied here so the delivery report can state them without opening another file.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "reason"],
+        "properties": {
+          "check": { "type": "string" },
+          "target": { "type": "string" },
+          "reason": { "type": "string" },
+          "owner": { "type": "string" },
+          "date": { "type": "string" }
+        }
+      }
+    }
+  }
+}

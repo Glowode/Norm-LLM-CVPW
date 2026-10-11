@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/exemptions.schema.json",
+  "title": "cvpw qa/exemptions.json",
+  "description": "Authored, dated, justified waivers. A waiver is a reviewed decision, not a mute button: it needs a reason, a date and an owner, and it appears in the delivery report (docs/SPEC.md V6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "exemptions"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "exemptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check", "date", "reason", "owner"],
+        "properties": {
+          "check": { "type": "string", "description": "The check id from docs/QA.md that is being waived." },
+          "target": {
+            "type": ["string", "null"],
+            "description": "What the waiver covers: a seam id, a shot id, a gate. Null means the whole check, which needs a stronger reason."
+          },
+          "date": { "type": "string", "description": "ISO 8601 date the waiver was granted." },
+          "reason": {
+            "type": "string",
+            "minLength": 20,
+            "description": "Why this is acceptable. A reason shorter than a sentence is not a reason."
+          },
+          "observed": { "type": "string", "description": "The measured value, so a later reader can judge whether the waiver is still proportionate." },
+          "threshold": { "type": "string", "description": "The threshold it misses, copied from docs/QA.md." },
+          "owner": { "type": "string", "description": "Who decided. An unowned waiver is nobody's decision." },
+          "expires": {
+            "type": ["string", "null"],
+            "description": "ISO 8601 date, or null for no expiry. A waiver that never expires should be either fixed or promoted into docs/QA.md with a reason."
+          },
+          "affects": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Advisory: what a reader should look at to judge the consequence."
+          }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/cues.schema.json",
+  "title": "cvpw cues/cues.json",
+  "description": "The only permitted home for an off-grid time (docs/SPEC.md T8). Every cue records its provenance so a re-analysis can refine a guess without ever overwriting a human's ear correction.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "cues"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "duration": { "type": "number", "exclusiveMinimum": 0 },
+    "cues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "t", "source"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+            "description": "Must be unique. Readable by a human weeks later: `chorus_in`, not `c7`."
+          },
+          "t": { "type": "number", "minimum": 0, "description": "Seconds from the start of the piece." },
+          "source": {
+            "type": "string",
+            "enum": ["measured", "analysis", "audit", "initial", "manual"],
+            "description": "`measured` from audio, `analysis` derived by a pass, `audit` reviewed by a tool, `initial` a guess, `manual` set by ear. Tools may refine the first four; `manual` is never overwritten."
+          },
+          "label": { "type": "string", "description": "Human-readable description of the moment." },
+          "note": { "type": "string", "description": "Why this value, or what remains uncertain about it." },
+          "usedBy": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional: shot ids that reference this cue. Written by tooling so that deleting a referenced cue can fail with the referencing ids rather than silently breaking a cut."
+          }
+        }
+      }
+    }
+  }
+}

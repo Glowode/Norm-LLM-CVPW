@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/assets.schema.json",
+  "title": "cvpw assets/manifest.json",
+  "description": "The provenance record for every non-code asset the film loads. An asset with no licence or no source fails the gate: a film whose provenance is unknown cannot be delivered.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "assets"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "path", "licence", "source"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+            "description": "Stable id. Scenes refer to assets by id, not by path, so an asset can be replaced without touching scene code."
+          },
+          "path": { "type": "string", "description": "Project-relative, forward-slashed, no absolute paths (docs/SPEC.md A5)." },
+          "kind": { "type": "string", "enum": ["image", "font", "audio", "lut", "data", "other"] },
+          "size": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 1 },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[width, height] in pixels."
+          },
+          "transparent": { "type": "boolean", "description": "Whether the image carries an alpha channel the engine may rely on." },
+          "alphaMethod": { "type": "string", "enum": ["native", "chroma", "matte", "none"] },
+          "trimmed": { "type": "boolean", "description": "Whether fully transparent borders were removed, which changes the registration of the asset." },
+          "registration": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "[scale, dx, dy] to place this asset onto a shared reference frame. Art spec as data, so aligning two drawings does not require re-exporting them."
+          },
+          "landmarks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "description": "Named anchor points in image pixels, e.g. `{ \"head\": [512, 180] }`. Measurements, so a scene attaches a prop by name instead of by eyeballing a coordinate."
+          },
+          "prompt": { "type": "string", "description": "For a generated asset: the exact text that produced it, so the result is reproducible or at least auditable." },
+          "generator": { "type": "string" },
+          "source": { "type": "string", "minLength": 1, "description": "Where this came from: a URL, a tool invocation, or a person. Required." },
+          "licence": { "type": "string", "minLength": 1, "description": "SPDX id or a plain statement. Required." },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Digest of the file on disk. A mismatch is a gate failure, not a warning: it means the manifest describes a different film." },
+          "reviewed": {
+            "type": "object",
+            "description": "Evidence that a human or agent opened this asset and judged it.",
+            "additionalProperties": false,
+            "properties": {
+              "at": { "type": "string" },
+              "by": { "type": "string" },
+              "note": { "type": "string" }
+            }
+          },
+          "extensions": { "type": "object" }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

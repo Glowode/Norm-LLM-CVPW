@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/gold.schema.json",
+  "title": "cvpw qa/gold.json",
+  "description": "The determinism witness: frame content hashes for a fixed set of times. Regenerated only with --update-gold and a stated reason, because a gold file that drifts silently makes the whole determinism guarantee decorative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "fixture", "width", "height", "fps", "frames"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "fixture": {
+      "type": "string",
+      "description": "What was hashed: a project path or a template id. A gold file with no fixture is unverifiable."
+    },
+    "renderer": { "type": "string", "description": "The renderer string at the time the gold was taken. A different GPU is a legitimate reason for a mismatch, and stating it turns a mystery into a decision." },
+    "width": { "type": "integer", "minimum": 2 },
+    "height": { "type": "integer", "minimum": 2 },
+    "fps": { "type": "integer", "minimum": 1 },
+    "dpr": { "type": "integer", "minimum": 1, "description": "Supersampling factor. Part of the identity of a render, so a gold taken at dpr 2 does not describe a dpr 1 render." },
+    "grain": { "type": "boolean", "description": "Whether the grain pass was active. Seam and hash comparison must run with grain off." },
+    "tolerance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Fraction of sampled cells allowed to differ, for GPU float noise. 0 means exact. Raising it is a decision to be recorded in docs/PROGRESS.md, not a convenience."
+    },
+    "frames": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string" },
+      "description": "Frame index (as a string key) to content hash. Keys are frame indices rather than seconds so that a time-base change cannot silently shift which frames are compared."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Why this gold was (re)taken. Required in practice: an unexplained baseline is indistinguishable from an accident."
+    }
+  }
+}

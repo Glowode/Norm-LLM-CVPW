@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/render-report.schema.json",
+  "title": "cvpw render/report.json",
+  "description": "The record of one render: what was drawn, by what, how fast, and which encoder was actually selected. Derived and never an input to a stage (docs/SPEC.md A6). See docs/CONTRACTS.md §10.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "run", "name", "frames", "width", "height", "fps"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt"],
+      "properties": {
+        "startedAt": { "type": "string" },
+        "durationSec": { "type": "number", "minimum": 0 },
+        "workers": { "type": "integer", "minimum": 1 },
+        "transport": { "type": "string", "enum": ["filesystem", "stream"] },
+        "host": { "type": "string" },
+        "cvpwVersion": { "type": "string" }
+      }
+    },
+    "name": { "type": "string" },
+    "output": { "type": "string", "description": "Project-relative path of the encoded file." },
+    "codec": { "type": "string", "description": "The codec actually used, after probing. Never the requested one." },
+    "codecRequested": { "type": "string", "description": "What was asked for, which may differ when probing found the hardware encoder unusable." },
+    "codecProbe": { "type": "string", "description": "The evidence: the probe's exit code or message. `h264_nvenc` being listed by ffmpeg is not evidence." },
+    "width": { "type": "integer", "minimum": 2 },
+    "height": { "type": "integer", "minimum": 2 },
+    "fps": { "type": "integer", "minimum": 1 },
+    "frames": { "type": "integer", "minimum": 0 },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "integer", "minimum": 0 },
+        "to": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "msPerFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "avg": { "type": "number", "minimum": 0 },
+        "p50": { "type": "number", "minimum": 0 },
+        "p95": { "type": "number", "minimum": 0 },
+        "max": { "type": "number", "minimum": 0 }
+      }
+    },
+    "renderer": { "type": "string", "description": "The WebGL renderer string the browser reported for this render." },
+    "software": {
+      "type": "boolean",
+      "description": "True when the render ran under a software rasteriser. Its float paths differ, so the file is a different artefact and the report must say so."
+    },
+    "resolvedTimes": {
+      "type": "object",
+      "additionalProperties": { "type": "number" },
+      "description": "Shot id to resolved seconds. Written so a time expression's effect can be audited after the fact."
+    },
+    "resolvedExpressions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Shot id to the time expression it came from. With resolvedTimes, this makes a re-cut's effect reviewable."
+    },
+    "frameHashes": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Frame index to content hash at the sampled times. The determinism witness (docs/SPEC.md D7)."
+    },
+    "registry": {
+      "type": "object",
+      "description": "What was registered when this render ran, so a file can be traced to the code set that produced it.",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "errors": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "A non-empty list means the output file was deleted. A truncated render must never masquerade as a finished one."
+    },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

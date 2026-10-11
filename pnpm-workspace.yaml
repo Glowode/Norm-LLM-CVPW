@@ -1,0 +1,9 @@
+# pnpm workspace + settings. pnpm 11 reads settings from this file, not from a `pnpm` field in
+# package.json — see https://pnpm.io/settings.
+packages:
+  - "packages/*"
+
+# esbuild (a Vite/Vitest transitive dependency) needs its postinstall to place its native binary.
+# Denying it makes `vitest` fail at runtime with a confusing error, so it is explicitly allowed.
+allowBuilds:
+  esbuild: true

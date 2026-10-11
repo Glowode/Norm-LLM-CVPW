@@ -1,0 +1,56 @@
+# --- Prior art --------------------------------------------------------------------------------
+# `reference/` holds six other people's projects, each with its own .git and its own licence.
+# They are read-only prior art, cited in README.md and never imported by anything here. Committing
+# them would either turn them into gitlinks (which clone as empty directories) or relicense their
+# contents under this repository's MIT licence — both wrong. The directory stays on disk and stays
+# out of the index.
+reference/
+
+# --- Node / tooling ---------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+dist/
+*.tsbuildinfo
+.vitest/
+coverage/
+
+# --- Python -----------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Projects scaffolded inside this repo (they belong outside by default) --------------------
+# `cvpw new` defaults to a sibling directory; this only matters for local experiments.
+examples/*/node_modules/
+examples/*/render/
+examples/*/review/
+examples/*/analysis/*.f32
+examples/*/audio/*
+!examples/*/audio/.gitkeep
+
+# --- OS / editor ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+.idea/
+.vscode/
+!.vscode/extensions.json
+
+# --- Local scratch ----------------------------------------------------------------------------
+.tmp/
+scratch/
+*.log
+
+# --- Audio and lyric text are the user's property; never commit them by default ----------------
+audio/*.wav
+audio/*.mp3
+audio/*.flac
+audio/*.m4a
+lyrics/*.txt
+!audio/.gitkeep
+!lyrics/.gitkeep

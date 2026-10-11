@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/audio.schema.json",
+  "title": "cvpw analysis/audio.json",
+  "description": "The time authority. Written by `cvpw analyze`, never hand-edited; hand curation happens in analysis/sections.json and cues/cues.json, which the analysis reads as overrides. See docs/CONTRACTS.md §4.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "source", "duration", "fps", "frames", "beats", "bars"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+
+    "source": { "type": "string", "description": "Project-relative path of the audio this describes." },
+    "generator": { "type": "string", "description": "Tool and version that produced this file, e.g. `cvpw analyze@1`." },
+    "generatedAt": {
+      "type": "null",
+      "description": "Always null. A timestamp would make the artifact non-reproducible; the run is dated in render/report.json instead (docs/SPEC.md A6)."
+    },
+
+    "duration": { "type": "number", "exclusiveMinimum": 0 },
+    "sampleRate": { "type": "integer", "minimum": 8000 },
+    "analysisRate": { "type": "integer", "minimum": 4000 },
+    "fps": { "type": "integer", "minimum": 1 },
+    "frames": { "type": "integer", "minimum": 1 },
+
+    "tempo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bpm"],
+      "properties": {
+        "bpm": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "A LABEL. Never build a grid from it: derive beats and bars from the measured arrays below, because tempo drifts (docs/SPEC.md T4)."
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "method": { "type": "string", "description": "Prose: how the tempo was estimated. Honest beats clever." },
+        "octaveCheck": { "type": "string", "enum": ["ok", "halved", "doubled", "uncertain"] },
+        "beatPeriod": { "type": "number", "exclusiveMinimum": 0 },
+        "firstBeat": { "type": "number", "minimum": 0 },
+        "driftMsPerMin": { "type": "number", "description": "Measured drift, not assumed." }
+      }
+    },
+    "meter": { "type": "string", "pattern": "^[0-9]+/[0-9]+$" },
+
+    "beats": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "description": "The grid. Use for hits and cuts."
+    },
+    "beatsSmooth": {
+      "type": "array",
+      "items": { "type": "number", "minimum": 0 },
+      "description": "Spline-smoothed beats, for continuous motion rather than cuts."
+    },
+    "bars": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "start", "end"],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "description": "Authoritative. Never assume bars[i].index === i: a pickup bar makes index 0 sit at array position 0 but shifts everything after it."
+          },
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "exclusiveMinimum": 0 },
+          "bpm": { "type": "number", "exclusiveMinimum": 0 },
+          "pickup": { "type": "boolean" },
+          "beats": { "type": "integer", "minimum": 1, "maximum": 32 }
+        }
+      }
+    },
+
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "name", "start", "end"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string" },
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "exclusiveMinimum": 0 },
+          "energy": { "type": "number" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "manual": { "type": "boolean", "description": "True when a human overrode the automatic grouping." }
+        }
+      }
+    },
+
+    "onsets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["t"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "strength": { "type": "number", "minimum": 0 },
+          "band": { "type": "string" }
+        }
+      }
+    },
+
+    "impacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["t", "kind"],
+        "properties": {
+          "t": { "type": "number", "minimum": 0 },
+          "strength": { "type": "number", "minimum": 0 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "first_sound",
+              "stop",
+              "gap",
+              "drop",
+              "breakdown",
+              "hit",
+              "section_start",
+              "final_cut",
+              "end_of_tail"
+            ]
+          }
+        }
+      }
+    },
+
+    "stops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end"],
+        "properties": {
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "minimum": 0 },
+          "depthDb": { "type": "number" },
+          "kind": { "type": "string", "enum": ["stop", "gap"] }
+        }
+      }
+    },
+
+    "vocalActivity": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end"],
+        "properties": {
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+
+    "notes": {
+      "type": "string",
+      "description": "Provenance prose: what produced this, how, and its known error. Every artifact produced by an analysis pass SHOULD state its own uncertainty (docs/SPEC.md A7)."
+    }
+  }
+}

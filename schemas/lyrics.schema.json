@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/lyrics.schema.json",
+  "title": "cvpw cues/lyrics.json",
+  "description": "Lyric TEXT. Optional, and git-ignored by default: the text belongs to its owner, not to this project. Timing lives separately in lyrics.timing.json so a project can be delivered without the words (docs/SPEC.md T7).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "lines"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "language": { "type": "string", "description": "BCP 47 tag where known." },
+    "source": {
+      "type": "string",
+      "description": "Where the text came from. 'official' means supplied by the rights holder; anything else needs the licence field on project.json."
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["i", "text"],
+        "properties": {
+          "i": { "type": "integer", "minimum": 0, "description": "Must match the index in lyrics.timing.json; a mismatch is a contract violation." },
+          "text": { "type": "string" },
+          "section": { "type": "string" },
+          "emphasis": { "type": "boolean", "description": "A キメ / hook line the picture should treat as a signature moment." },
+          "markup": {
+            "type": "string",
+            "description": "Optional display markup for the text layer. Kept out of `text` so the words themselves stay exactly as the rights holder wrote them."
+          },
+          "translation": { "type": "string" }
+        }
+      }
+    },
+    "notes": { "type": "string" }
+  }
+}

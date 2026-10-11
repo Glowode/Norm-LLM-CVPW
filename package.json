@@ -1,0 +1,28 @@
+{
+  "name": "norm-llm-cvpw",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Normalized, agent-agnostic framework for producing video from code.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" build",
+    "typecheck": "pnpm -r --filter \"./packages/**\" typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "pnpm -r --filter \"./packages/**\" lint",
+    "cvpw": "node packages/cli/bin/cvpw.mjs",
+    "doctor": "node packages/cli/bin/cvpw.mjs doctor",
+    "selftest": "node packages/cli/bin/cvpw.mjs selftest"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

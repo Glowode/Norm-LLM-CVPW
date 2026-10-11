@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/timeline.schema.json",
+  "title": "cvpw timeline.json",
+  "description": "The edit as data. Times are EXPRESSIONS resolved against the timebase, never bare numbers (docs/SPEC.md T2). See docs/CONTRACTS.md §8 and the grammar in §3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "duration", "shots"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "duration": { "type": "number", "exclusiveMinimum": 0 },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Applied to every shot that does not override them.",
+      "properties": {
+        "style": { "type": "string" },
+        "layout": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "safe": { "type": "integer", "minimum": 0 },
+            "subtitleBand": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Times that are intended hard cuts. Used to clamp motion-blur sub-frames and to classify a jump as planned during QA. A registered pixel seam must NOT appear here.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "shots": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "scene", "at", "moment"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+            "description": "Unique. A block prefix is conventional so ownership is visible at a glance."
+          },
+          "scene": { "type": "string", "description": "Must be a registered scene, and `args` must satisfy its argsSchema." },
+          "style": { "type": "string", "description": "Overrides project.json::style for this shot. Must be registered." },
+          "at": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Time expression. e.g. \"b(32,0)\", \"cue('chorus')+0.12\", \"L(12)\", \"VOX('sudden')\", \"p(0.85)\". A bare number is permitted as seconds and raises a lint warning."
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional end. Absent means 'until the next shot's at'; the last shot defaults to duration."
+          },
+          "moment": {
+            "type": "string",
+            "minLength": 8,
+            "description": "One sentence: what this shot is FOR. Required (docs/SPEC.md C3) — the cheapest possible defence against filler."
+          },
+          "block": { "type": "string", "description": "Owning block id from docs/BLOCKS.md. Required when more than one author works on the film." },
+          "stateful": {
+            "type": "boolean",
+            "description": "The scene carries simulation state and must be replayed deterministically via reset()/step(). Declared per shot, not per scene, because the same scene may be used both ways."
+          },
+          "args": {
+            "type": "object",
+            "description": "Validated against the scene's argsSchema. An unknown key is an error, never a default."
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "safe": { "type": "integer", "minimum": 0 },
+              "subtitleBand": { "type": "integer", "minimum": 0 }
+            }
+          },
+          "post": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Merged over the style's post defaults. The last active shot's values win, so a transition does not average two unrelated grades.",
+            "properties": {
+              "vignette": { "type": "number", "minimum": 0, "maximum": 1 },
+              "grain": { "type": "number", "minimum": 0, "maximum": 1 },
+              "bloom": { "type": "number", "minimum": 0 },
+              "saturate": { "type": "number", "minimum": 0 },
+              "brightness": { "type": "number" },
+              "contrast": { "type": "number" },
+              "tint": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "color": { "type": "string", "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" },
+                  "alpha": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            }
+          },
+          "transition": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "An overlap is owned by the LATER shot (docs/SPEC.md C1).",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string", "enum": ["cut", "fade", "wipe", "slide", "flash", "custom"] },
+              "overlap": { "type": "number", "minimum": 0 },
+              "param": {}
+            }
+          },
+          "handoff": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "out": {
+                "type": ["string", "null"],
+                "description": "Seam id this shot hands off to, or null. Must match an entry in handoff.json."
+              }
+            }
+          },
+          "text": {
+            "type": "array",
+            "description": "On-screen strings. Every entry must appear verbatim in project.json::textWhitelist (docs/SPEC.md C6).",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["s"],
+              "properties": {
+                "s": { "type": "string" },
+                "role": { "type": "string", "enum": ["title", "name", "caption", "credit", "ui", "onomatopoeia"] },
+                "at": { "type": "string" }
+              }
+            }
+          },
+          "extensions": { "type": "object" }
+        }
+      }
+    },
+    "blocks": {
+      "type": "array",
+      "description": "The partition: disjoint time ranges with one owner each. Mirrors docs/BLOCKS.md.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "file"],
+        "properties": {
+          "id": { "type": "string" },
+          "file": { "type": "string" },
+          "from": { "type": "string", "description": "Time expression for the block's start." },
+          "to": { "type": "string", "description": "Time expression for the block's end." },
+          "owner": { "type": "string" },
+          "cues": { "type": "array", "items": { "type": "string" } },
+          "entry": { "type": "string", "description": "What is on screen at the first frame." },
+          "exit": { "type": "string", "description": "What is on screen at the last frame." },
+          "handoffNext": { "type": "string", "description": "What the next block must do at the boundary, and which shared values it must read." }
+        }
+      }
+    }
+  }
+}

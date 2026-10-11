@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/handoff-report.schema.json",
+  "title": "cvpw handoff.report.json",
+  "description": "The MEASUREMENT of the handoffs declared in handoff.json. Derived, written only by `cvpw handoff`, carries a run record, and is never an input to a stage. Keeping it separate is what lets handoff.json stay reproducible (docs/SPEC.md A6).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "run", "seams"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startedAt"],
+      "properties": {
+        "startedAt": { "type": "string" },
+        "grain": {
+          "type": "string",
+          "enum": ["on", "off"],
+          "description": "Must be `off`. Grain makes two frames at different times differ across the whole screen, so a seam compared with grain on would fail whatever the film did."
+        },
+        "renderer": { "type": "string" },
+        "host": { "type": "string" }
+      }
+    },
+    "seams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "t", "grade"],
+        "properties": {
+          "id": { "type": "string" },
+          "t": { "type": "number", "minimum": 0, "description": "Resolved seconds of the boundary instant." },
+          "diffAB": {
+            "type": ["number", "null"],
+            "description": "Mean absolute difference between A's last frame and B's first frame. Null when the seam could not be rendered, which is a failure, not a pass."
+          },
+          "diffARef": {
+            "type": ["number", "null"],
+            "description": "A against the contract's reference implementation — measures how far the outgoing side drifted."
+          },
+          "diffBRef": {
+            "type": ["number", "null"],
+            "description": "B against the reference — measures how far the incoming side drifted. Comparing these two localises which side is wrong."
+          },
+          "grade": {
+            "type": "string",
+            "enum": ["ok", "minor", "ALIGN", "unchecked"],
+            "description": "The bands are defined in docs/QA.md (`handoff.pixel`), not here: a threshold must have exactly one home."
+          },
+          "strip": { "type": "string", "description": "Project-relative path of the A|REF|B comparison image, so a reviewer can look instead of trusting the number." },
+          "activeBefore": { "type": "string" },
+          "activeAfter": { "type": "string" },
+          "note": { "type": "string" },
+          "errors": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

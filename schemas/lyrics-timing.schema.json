@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/lyrics-timing.schema.json",
+  "title": "cvpw cues/lyrics.timing.json",
+  "description": "Lyric TIMING, deliberately separated from lyric TEXT so a project can ship one without the other (docs/SPEC.md T7). Contains no lyric words: each line carries a hash of its words, which is the copyright-safe join key against a text file the user keeps locally.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "count", "lines"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "count": { "type": "integer", "minimum": 0 },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "start", "end"],
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "minimum": 0 },
+          "firstLine": { "type": "integer", "minimum": 0 },
+          "lastLine": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["i", "start", "end"],
+        "properties": {
+          "i": { "type": "integer", "minimum": 0, "description": "Line index. This is what `L(n)` resolves." },
+          "start": { "type": "number", "minimum": 0 },
+          "end": { "type": "number", "minimum": 0 },
+          "words": {
+            "type": "array",
+            "description": "Optional per-word spans, for a word-level lyric layer. Present only when alignment produced them.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["start", "end"],
+              "properties": {
+                "start": { "type": "number", "minimum": 0 },
+                "end": { "type": "number", "minimum": 0 },
+                "syllables": {
+                  "type": "array",
+                  "description": "Sub-word spans, present only when a pronunciation step produced them. Inventing these for a language you cannot verify is worse than reporting word-level timing.",
+                  "items": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+                }
+              }
+            }
+          },
+          "h": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8,64}$",
+            "description": "Hash of the line's words, lowercased with punctuation stripped. The join key: a locally-held text file is matched against this without the text ever being committed."
+          },
+          "x": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8,64}$",
+            "description": "Hash of the exact line text, so a whitespace-only edit is distinguishable from a rewording."
+          },
+          "manual": { "type": "boolean", "description": "A human set or corrected this line. Tooling must not overwrite it." },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "source": { "type": "string", "enum": ["lrc", "aligned", "transcribed", "manual", "estimated"] },
+          "note": { "type": "string", "description": "What is uncertain about this line. An honest per-line note beats a confident aggregate." }
+        }
+      }
+    },
+    "notes": { "type": "string", "description": "Provenance: which method produced these times, and the expected per-line error." }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@cvpw/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The `cvpw` command line: scaffolding, environment probing, contract validation, analysis, storyboard, review, render and the gate suite.",
+  "license": "MIT",
+  "bin": {
+    "cvpw": "./bin/cvpw.mjs"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cvpw/audit": "workspace:*",
+    "@cvpw/kernel": "workspace:*",
+    "@cvpw/render": "workspace:*",
+    "@cvpw/runtime": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
+}

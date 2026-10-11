@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/envelope.schema.json",
+  "title": "cvpw analysis/envelope.json",
+  "description": "Metadata for the per-frame feature blob analysis/envelope.f32. A small JSON sidecar plus a flat little-endian float32 [frames][channels] binary, rather than a large JSON array: the binary is ~20x smaller and loads without parsing. See docs/CONTRACTS.md §5.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "fps", "frames", "duration", "channels", "layout"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "fps": { "type": "integer", "minimum": 1, "description": "Frame rate of the feature grid. Matches the project's output fps." },
+    "frames": { "type": "integer", "minimum": 1 },
+    "duration": { "type": "number", "exclusiveMinimum": 0 },
+    "channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Column order in the binary. Reading the blob without this list is meaningless."
+    },
+    "layout": {
+      "type": "string",
+      "description": "Human-readable layout statement. Must say row-major [frames][channels], little-endian float32, and where frame i is centred in time.",
+      "minLength": 10
+    },
+    "normalization": {
+      "type": "string",
+      "description": "How each channel was scaled. Recorded because a normalised feature is unusable without knowing the transform.",
+      "minLength": 5
+    },
+    "silentFrames": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 0 },
+      "description": "Frame indices with no usable audio. Consumers must treat these as zero rather than as measured silence."
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Per-channel unit or meaning, e.g. `{ \"rms\": \"normalized\", \"beat\": \"beat index within bar\" }`."
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": { "type": "array", "items": { "type": "number" } },
+      "description": "Band definitions used to produce the channels, e.g. `{ \"low\": [20, 150] }`."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Optional digest of the .f32 blob, so a mismatch between the sidecar and the binary is detectable instead of producing plausible nonsense."
+    },
+    "notes": { "type": "string" }
+  }
+}

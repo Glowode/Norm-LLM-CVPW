@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/project.schema.json",
+  "title": "cvpw project.json",
+  "description": "The only place project knobs live. See docs/CONTRACTS.md §2. Unknown top-level keys are rejected (docs/SPEC.md A4) so that a misspelled knob fails loudly instead of silently taking a default.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "id", "output", "style", "timebase"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Stable identifier; used for output filenames. Lowercase, no spaces."
+    },
+    "title": { "type": "string" },
+    "titleSub": { "type": "string" },
+    "artist": { "type": "string" },
+    "credit": {
+      "type": "string",
+      "description": "The exact on-screen credit line. Ask the user; never invent it. Must appear verbatim in the end card and in README.md."
+    },
+
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "fps"],
+      "properties": {
+        "width": { "type": "integer", "minimum": 64, "maximum": 7680 },
+        "height": { "type": "integer", "minimum": 64, "maximum": 4320 },
+        "fps": { "type": "integer", "enum": [24, 25, 30, 50, 60] },
+        "color": { "type": "string", "enum": ["bt709", "bt2020"] },
+        "safe": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum inset from every edge for anything that must not be clipped. Defaults to 5.33% of height (96 px at 1080p)."
+        },
+        "subtitleBand": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Content at or below this y is within the subtitle band. Defaults to 85.2% of height (920 px at 1080p)."
+        }
+      }
+    },
+
+    "variants": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["aspect"],
+        "properties": {
+          "aspect": { "type": "string", "pattern": "^[0-9]+:[0-9]+$" },
+          "width": { "type": "integer", "minimum": 64 },
+          "height": { "type": "integer", "minimum": 64 },
+          "container": { "type": "string", "enum": ["mp4", "mov", "webm"] },
+          "codec": { "type": "string" },
+          "crf": { "type": "number", "minimum": 0, "maximum": 51 }
+        }
+      }
+    },
+
+    "audio": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string", "description": "Project-relative path. Never modified by a tool." },
+        "sampleRate": { "type": "integer", "minimum": 8000 },
+        "offset": {
+          "type": "number",
+          "description": "Seconds of lead-in applied AT MUX TIME. Editing the source file to achieve this is forbidden (docs/SPEC.md P6)."
+        }
+      }
+    },
+
+    "timebase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["measured", "manual"],
+          "description": "'measured' requires analysis/audio.json before storyboard or render; 'manual' permits only cue and absolute-second times."
+        },
+        "meter": { "type": "string", "pattern": "^[0-9]+/[0-9]+$" }
+      }
+    },
+
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analysis": { "type": "string" },
+        "assets": { "type": "string" },
+        "review": { "type": "string" },
+        "render": { "type": "string" }
+      }
+    },
+
+    "style": {
+      "type": "string",
+      "description": "The default style for shots that do not name one. Must be registered; an unregistered name is an error, never a fallback, because a silent fallback would restyle a film without anyone noticing."
+    },
+
+    "render": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workers": { "type": "integer", "minimum": 1, "maximum": 32 },
+        "frameCodec": { "type": "string", "enum": ["jpeg", "png"] },
+        "frameQuality": { "type": "number", "minimum": 0.1, "maximum": 1 },
+        "motionBlur": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "samples": { "type": "integer", "minimum": 1, "maximum": 64 },
+            "shutter": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "allowSoftware": {
+          "type": "boolean",
+          "description": "Permit rendering under a software rasteriser. Off by default: it is ~10x slower and produces a different artefact."
+        }
+      }
+    },
+
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "msPerFrame": { "type": "number", "minimum": 1 },
+        "peakDiskGb": { "type": "number", "minimum": 0.1 },
+        "flashPerSecond": { "type": "number", "minimum": 0 },
+        "seamDiffMinor": { "type": "number", "minimum": 0 },
+        "seamDiffFail": { "type": "number", "minimum": 0 }
+      }
+    },
+
+    "textWhitelist": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Every string that may appear on screen (docs/SPEC.md C6). An empty array is legal and means 'this film puts no text on screen', which is then enforced."
+    },
+
+    "lyricsText": {
+      "type": "string",
+      "enum": ["local-only", "licensed"],
+      "description": "Required when cues/lyrics.json exists. 'local-only' makes `cvpw deliver` refuse to publish lyric text (docs/SPEC.md T7)."
+    },
+    "lyricsLicence": {
+      "type": ["string", "null"],
+      "description": "Required when lyricsText is 'licensed': who granted permission and for what."
+    },
+
+    "seeds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["global"],
+      "properties": {
+        "global": {
+          "type": "integer",
+          "description": "The root of every seeded generator. Changing it restyles every noise-driven element at once, which is why it is a project knob."
+        }
+      }
+    },
+
+    "vectors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "grid": { "type": "string", "enum": ["none", "beats", "bars", "thirds", "golden"] }
+      }
+    },
+
+    "extensions": {
+      "type": "object",
+      "description": "Additive, non-breaking per-project data. Predicted extensions live here so that adding one never requires a schemaVersion bump (docs/SPEC.md A3)."
+    }
+  }
+}

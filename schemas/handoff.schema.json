@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://norm-llm-cvpw.dev/schemas/handoff.schema.json",
+  "title": "cvpw handoff.json",
+  "description": "The handoff CONTRACT: authored, reproducible, and never written by a tool. Measurements live in handoff.report.json, which is derived and is never an input to a stage (docs/SPEC.md A6). See docs/CONTRACTS.md §9.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "seams"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "seams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "t", "mode", "lastFrameOf", "firstFrameOf", "contract"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]*\\|[A-Za-z][A-Za-z0-9_]*$",
+            "description": "`<lastShotId>|<firstShotId>` — the two shots the contract binds."
+          },
+          "t": { "type": "string", "minLength": 1, "description": "Time expression for the boundary instant." },
+          "mode": {
+            "type": "string",
+            "enum": ["pixel", "transition"],
+            "description": "`pixel`: A's last frame and B's first frame must be near-identical, both sides reading this contract. `transition`: the shots overlap and the LATER shot owns drawing the transition."
+          },
+          "lastFrameOf": { "type": "string" },
+          "firstFrameOf": { "type": "string" },
+          "contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The shared state both sides MUST import and read. Neither side may hard-code these values (docs/SPEC.md C4).",
+            "properties": {
+              "camera": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "drift": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "amp": { "type": "number" },
+                      "speed": { "type": "number" },
+                      "seed": { "type": "integer" }
+                    }
+                  },
+                  "x": { "type": "number" },
+                  "y": { "type": "number" },
+                  "zoom": { "type": "number", "exclusiveMinimum": 0 },
+                  "rot": { "type": "number" }
+                }
+              },
+              "env": { "type": "string", "description": "Which environment/location module is on screen at the boundary." },
+              "layers": { "type": "array", "items": { "type": "string" }, "description": "Bottom-to-top layer ids. Layer order is part of the contract because shadows and textures are per-layer." },
+              "fx": {
+                "type": "object",
+                "description": "Per-frame post values at the boundary. Must be decayed: the outgoing block eases into this state over its last 0.3-0.5 s.",
+                "additionalProperties": true
+              },
+              "params": {
+                "type": "object",
+                "description": "Any further shared values, by name. Values must be plain data so that both sides can read the same number.",
+                "additionalProperties": true
+              }
+            }
+          },
+          "note": { "type": "string", "description": "Which values are shared and why, for the next author." }
+        }
+      }
+    }
+  }
+}
