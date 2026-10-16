@@ -50,3 +50,13 @@ export {
   type RenderRequest,
 } from "./render.js";
 export { run, version, type RunResult } from "./exec.js";
+export {
+  DEFAULT_SCENE_THRESHOLDS,
+  frameMetricsExpression,
+  judgeFrame,
+  sampleTimes,
+  type FrameContent,
+  type FrameMetricOptions,
+  type SceneCheckThresholds,
+  type SceneFrameVerdict,
+} from "./content.js";

@@ -156,7 +156,40 @@ four plausible PNGs. Nothing in the pipeline could see it, because every gate as
 that would have caught it, and it is not implemented yet — which is now the strongest argument for writing
 it next.
 
-### 4. `@cvpw/runtime` is still contract-only
+### 4. `cvpw check` exists, with the gate that was missing
+
+Four checks are implemented and wired: `render.frameContent`, `scenes.registry`, `timeline.time`,
+`text.whitelist`. `stills` and `lint` are not, and `docs/QA.md`'s twenty-four ids remain mostly
+unimplemented — but the important one is done, and it is the one whose absence cost a session.
+
+**`render.frameContent` is verified in both directions**, which is the only way to trust a gate:
+
+| Run | Result |
+|---|---|
+| Correct project, `cvpw check --only render.frameContent` | **exit 0**, 28 frames sampled, min content 0.24 %, median 62.9 %, 1 thin frame reported |
+| The original bug deliberately reintroduced | **exit 1**, naming `t=0.050s frame=2 shot=s01_open  the frame is 100.0 % #140b1e and nothing else` |
+
+That second row is the whole point: the failure message identifies the time, the frame, the shot, the
+dominant colour, and the cause, in one line. Someone staring at a black PNG gets their answer from the gate
+rather than from a bisection.
+
+Two design choices are worth recording because they are not obvious:
+
+- **Measured on the canvas, not from captured bytes.** JPEG artefacts would make two identical blank frames
+  differ slightly, so a threshold on captured bytes would need slack — and slack is exactly what this gate
+  must not have. This is a *visibility* check, so `getImageData` is the right instrument. `frameHash` still
+  comes from captured bytes for the reason ADR 0007 gives; the two are different questions.
+- **The threshold is 0.0001, about 200 pixels at 1080p.** The first draft used 0.0002, and the template's
+  own title card was close enough to it that a legitimate frame could have failed. A gate that fails a
+  correct frame is worse than no gate, because people learn to pass `--force` and then it protects nothing.
+  Frames between 0.0001 and 0.004 are reported as **thin** and never failed.
+
+`docs/QA.md` now defines the check, including why it is not redundant with `scene.emptyFrames` (which counts
+times with no active shot) or `render.noDeadFrames` (which compares consecutive frames of the master):
+neither asks whether a frame contains anything, and a shot drawing its subject in its own background colour
+satisfies both while being completely black.
+
+### 5. `@cvpw/runtime` is still contract-only
 
 ### 4. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
 
@@ -250,10 +283,10 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`cvpw check --scenes`** — the gate that would have caught the blank-frame bug in one run instead of a
-   session. Its rule ("no empty frames") is specified in `docs/QA.md` and unimplemented. It should read
-   back the canvas at a sampled set of times and fail when a frame's content is indistinguishable from its
-   own background. That is exactly the assertion whose absence let a film of near-black pass every check.
+1. **`cvpw render` end to end.** The stills and check paths already drive CDP, so the untested part is
+   narrow: the frame sink under concurrency, the encoder probe, and the MP4. Unit tests cover the sink's
+   ordering; nothing covers the encoder against a real film. This is now the largest untested surface in
+   the framework.
 2. **Then `cvpw render` end to end.** The stills path already drives CDP, so the untested part is narrow:
    the frame sink under concurrency, the encoder probe, and the MP4. Unit tests cover the sink's ordering;
    nothing covers the encoder against a real film.

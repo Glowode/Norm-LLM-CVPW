@@ -61,7 +61,29 @@ reason to skip the check by hand.
 | `assets.manifest` | 4 | every loaded asset is in `assets/manifest.json`, present on disk, `sha256`-verified; every entry has `licence` and `source` | `cvpw assets` | `asset-missing`, `sha256-mismatch`, `no-licence`, `no-source` | no |
 | `publish.lyricText` | 7 | 0 lyric text published unless the project declares it licensed | `cvpw deliver` | `lyric-text-unlicensed` | no ([SPEC](./SPEC.md) T7) |
 | `render.noDeadFrames` | 7 | something changes in every 0.5 s window | `cvpw check --dead-frames` | `dead-window [t0,t1)` | yes |
+| `render.frameContent` | 5,6 | every sampled frame has **> 0.0001** of its pixels differing from its own dominant colour | `cvpw check --scenes` | `frame-empty <t> <dominant>` | no |
 | `deliver.credit` | 7 | `credit`, when non-empty, appears verbatim in the end card and in `README.md` | `cvpw deliver` | `credit-missing`, `credit-mismatch` | no |
+
+**`render.frameContent` exists because its absence was expensive.** `scene.emptyFrames` counts sampled times
+with *no active shot*, and `render.noDeadFrames` compares consecutive frames of the master. Neither asks
+whether a frame contains anything. A shot that drew its subject in the colour of its own background — which
+happened, and is written up in [PROGRESS](./PROGRESS.md) — has an active shot at every time, changes between
+frames, and is completely black. It passed `cvpw validate`, a typecheck, and a render that wrote four
+plausible PNGs, because every gate asked whether the film was *valid* and none asked whether it was
+*visible*. This is that gate.
+
+The measurement is deliberately crude: **content fraction**, the share of pixels differing from the frame's
+own dominant colour by more than 10 of 765. A blank frame is one flat fill, so its dominant colour is the
+whole frame and the fraction is 0. 0.0001 is about 200 pixels at 1080p — a 14×14 block — so a frame fails
+only when it carries essentially nothing. It is set that low on purpose: a gate that fails a legitimate
+title card would be routed around within a week and would then protect nothing. A frame between 0.0001 and
+0.004 is reported as **thin** and never failed; composition quality is not a measurement's business, which
+is what looking at the stills is for.
+
+Measured on the canvas via `getImageData`, not from captured bytes: JPEG artefacts would make two identical
+blank frames differ slightly, and a threshold carrying slack for that is exactly what this gate must not
+have. This is a *visibility* check, so reading the canvas is the right instrument; `frameHash` still comes
+from captured bytes, for the reason [ADR 0007](./adr/0007-warmup-frames-and-first-frame-instability.md) gives.
 
 **`render.noDeadFrames` is not redundant with `scene.emptyFrames`.** `scene.emptyFrames` samples
 scenes at named times; `render.noDeadFrames` is a **full-rate, low-resolution pass** over every frame of

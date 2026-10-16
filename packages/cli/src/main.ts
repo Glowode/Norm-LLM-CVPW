@@ -478,6 +478,81 @@ register({
   },
 });
 
+// --- check ---------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "check",
+    summary: "The gate suite. Reports offenders, never a score.",
+    usage: "cvpw check [--only <ids>] [--profile <name>] [--only-block <id>] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          {
+            name: "only",
+            type: "value",
+            value: "<ids>",
+            doc: "Comma-separated check ids: render.frameContent, scenes.registry, timeline.time, text.whitelist.",
+            repeat: true,
+          },
+          { name: "profile", type: "value", value: "<name>", doc: "all | render | deliver.", default: "all" },
+          { name: "only-block", type: "value", value: "<id>", doc: "Restrict the frame checks to one block's range." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw check --only render.frameContent", "cvpw check", "cvpw check --json"],
+    notes: [
+      "`render.frameContent` (docs/QA.md) is the gate that was missing when a film of near-black passed",
+      "reads back what each sampled frame actually contains and fails when a frame is only its background.",
+      "Thresholds come from docs/QA.md and project.json::budgets. A project may tighten one, never loosen it.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { runChecks, checkEnvelope } = await import("./commands/check.js");
+    const { prepareCapture } = await import("./commands/render.js");
+
+    const capture = await prepareCapture(root);
+    const only = getList(args, "only")
+      .flatMap((entry) => entry.split(","))
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== "");
+    const profile = typeof args.flags.get("profile") === "string" ? String(args.flags.get("profile")) : "all";
+    const blockId = typeof args.flags.get("only-block") === "string" ? String(args.flags.get("only-block")) : undefined;
+
+    // `--only-block` restricts the *frame* checks to a block's range, so a block author can gate their own
+    // work without measuring somebody else's.
+    let range: { from: number; to: number; label: string } | undefined;
+    if (blockId) {
+      const { buildStoryboard } = await import("./commands/storyboard.js");
+      const storyboard = await buildStoryboard(root).catch(() => null);
+      const block = storyboard?.blocks.find((entry) => entry.id === blockId);
+      if (!block) {
+        throw new ContractError(
+          `no block named ${JSON.stringify(blockId)} in the storyboard\n` +
+            `  blocks: ${storyboard?.blocks.map((entry) => entry.id).join(", ") || "(none)"}`,
+        );
+      }
+      range = { from: Math.round(block.from * capture.fps), to: Math.round(block.to * capture.fps), label: blockId };
+    }
+
+    const report = await runChecks(
+      { root, fps: capture.fps, duration: capture.duration, ...(range ? { range } : {}), json: args.json },
+      { only },
+    );
+    const envelope = checkEnvelope(report);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
 // --- not-yet-implemented commands -----------------------------------------------------------------
 
 /**
@@ -565,16 +640,7 @@ stub(
 
 
 
-stub(
-  "check",
-  "The gate suite: twelve flags, twenty-four check ids.",
-  "cvpw check [--contract|--determinism|--timeline|--scenes|--text|--lyrics|--frames|--av-sync|--handoff|--flash|--assets|--publish] [--profile all|render|deliver] [--only <block>] [--json]",
-  "docs/QA.md §2, docs/WORKFLOW.md stage 7",
-  [
-    { name: "profile", type: "value", value: "all|render|deliver", doc: "How far the suite goes.", default: "all" },
-    { name: "only", type: "value", value: "<block>", doc: "Restrict every gate to one block's range." },
-  ],
-);
+
 
 stub(
   "lint",
