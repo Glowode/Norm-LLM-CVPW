@@ -18,7 +18,10 @@
     "lint": "pnpm -r --filter \"./packages/**\" lint",
     "cvpw": "node packages/cli/bin/cvpw.mjs",
     "doctor": "node packages/cli/bin/cvpw.mjs doctor",
-    "selftest": "node packages/cli/bin/cvpw.mjs selftest"
+    "spike:determinism": "node scripts/determinism-spike.mjs",
+    "spike:session": "node scripts/determinism-session.mjs",
+    "spike:repeat": "node scripts/determinism-repeat.mjs",
+    "spike:chunks": "node scripts/determinism-chunks.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

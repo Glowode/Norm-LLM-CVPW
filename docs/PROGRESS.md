@@ -106,14 +106,45 @@ instead of being buried in a worker loop that does not exist yet.
 The scaffold and the committed slice are specified and not built. Until they exist, `cvpw new` has
 nothing to copy and there is no runnable end-to-end example in the repository.
 
-### 4. The engine and renderer have never drawn a frame
+### 4. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
 
-`packages/kernel/src/engine.ts` typechecks and its contract is specified, but no test renders through it
-because `@cvpw/render` has no implementation. **The render half of the vertical slice is unproven.**
+`packages/kernel/src/engine.ts` typechecks and its contract is specified, but no test renders through it.
+**The engine half of the vertical slice is unproven.**
 
-What *is* proven about the render path: the browser is discoverable, and its WebGL renderer is real
-hardware (`ANGLE (NVIDIA … D3D11)`, not SwiftShader). The encoder probe works and correctly rejects
-`h264_nvenc`. Everything between "a canvas exists" and "an MP4 exists" is designed and untested.
+The *renderer's* riskiest assumption, however, is settled. An earlier revision of this file named "is a
+browser frame byte-reproducible?" as the highest-risk unproven claim. Four scripts under `scripts/` now
+answer it, and the answer changed a design. Full measurement and reasoning:
+[ADR 0007](./adr/0007-warmup-frames-and-first-frame-instability.md). In short:
+
+| Measured | Result |
+|---|---|
+| Two sessions, identical sequence | 7/7 byte-identical |
+| Three sessions, 24 frames | 24/24 identical, byte histograms equal |
+| Five sessions, 25 frames each | 25/25 identical |
+| Two identical walks in **one** session | 2 frames differ: 0 and 1 |
+| Chunk boundaries at frames 14 and 28 | stable — chunking is safe |
+| Warm-up before capture | tried three ways, including drawing the exact frames to be captured: **no effect** |
+
+What this bought: the `FrameSink` ordering invariant is confirmed *sufficient* rather than assumed;
+`--workers` does not change the film; and three requirements fall out that would otherwise have been
+discovered late —
+
+1. `qa/gold.json` MUST exclude the first `warmupFrames` frames. A check that fails on a coin flip is a
+   check people learn to ignore.
+2. `frameHash` MUST be computed from captured frame bytes, not an in-page pixel read. Readback proved
+   stable, so in-page hashing would *work* — but it witnesses the canvas, not the deliverable, and the
+   two can diverge once encoding settings are involved.
+3. `project.json::render.warmupFrames` (default 2) discards those frames at the head of a render, so a
+   re-render reproduces the previous render rather than a session's first attempt.
+
+What it cost: an honest admission that the cause is not understood, only measured. That is why the spike
+scripts stay in the repository as a regression check to re-run after a browser or driver update, and why
+`warmupFrames` is a project knob rather than a constant in the renderer.
+
+Also verified about the render path: the browser is discoverable, its WebGL renderer is real hardware
+(`ANGLE (NVIDIA … D3D11)`, not SwiftShader), and the encoder probe correctly rejects `h264_nvenc`. The CDP
+client and the static server that `@cvpw/render` exports are implemented and exercised by these spikes;
+what remains unimplemented is the frame sink, the worker loop and the ffmpeg driver.
 
 ### 5. Not started, as planned for phase 2
 
