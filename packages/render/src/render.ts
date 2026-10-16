@@ -124,12 +124,13 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
   const warmupFrames = request.warmupFrames ?? 2;
   const warnings: string[] = [];
   const errors: string[] = [];
-  if (request.workers > 1) {
-    // Not a style preference: see the OPEN DEFECT note in `runChunk`. Parallel workers currently produce a
-    // different film from a sequential render, measured, and the cause is upstream of the sink.
+  if (request.workers > 1 && warmupFrames === 0) {
+    // Parallel rendering is only reproducible because each worker warms from the film's start. With warm-up
+    // disabled a worker begins cold and produces different pixels, which is a deliberate choice the caller
+    // has to make explicitly and should not discover from a mismatched gold file.
     warnings.push(
-      `--workers ${request.workers} does not yet reproduce a sequential render exactly (see the OPEN DEFECT ` +
-        `note in packages/render/src/render.ts). Use --workers 1 for any output that must be reproducible.`,
+      `--workers ${request.workers} with warmupFrames 0: each worker starts cold, so this render will NOT ` +
+        `match a sequential one. Pass warmupFrames >= 1 for a reproducible result.`,
     );
   }
   const startedAt = Date.now();
@@ -339,54 +340,36 @@ async function runChunk(args: ChunkArgs): Promise<{ renderer: string; software: 
     .catch(() => "unknown");
   const software = SOFTWARE_MARKERS.some((m) => renderer.toLowerCase().includes(m));
 
-  // Warm-up: render and DISCARD frames immediately before this worker's own range.
+  // Warm-up: walk from the film's start to this worker's first frame, flushing as we go, and discard it all.
   //
-  // **This is a mitigation, not a fix — see the block comment below.** It was added after measuring that
-  // every worker used to warm `request.from`, the film's first two frames, so a worker whose chunk began at
-  // frame 180 was still cold when it captured frame 180.
-  const warmStart = Math.max(request.from, chunk.from - args.warmupFrames);
-  for (let f = warmStart; f < chunk.from; f++) {
-    await browser.evaluate(RENDER_EXPRESSION(f / fps)).catch(() => undefined);
+  // **Why from frame 0, rather than a couple of frames back.** Once `Browser.flush` was in place, the *only*
+  // remaining difference between `--workers 1` and `--workers 4` was the first frame of each chunk: frames 60,
+  // 120 and 180 differed while every frame after them agreed. A chunk's first frame is drawn with a different
+  // amount of queued work behind it than the same frame drawn mid-walk, and the flush returns pixels only
+  // after that work has run. Walking from the start removes the distinction: a worker's queued state at frame
+  // 180 is then the state a whole-film walk would have.
+  //
+  // It is not free. A 4-way split walks 0+60+120+180 = 360 frames of warm-up for a 240-frame film — about
+  // 2.5× the drawing. That is the honest price of a reproducible parallel render, and it is why `workers` is
+  // a throughput knob with a cost rather than a free one. `--workers 1` pays nothing and is byte-identical
+  // to any other count.
+  if (args.warmupFrames > 0) {
+    for (let f = request.from; f < chunk.from; f++) {
+      await browser.evaluate(RENDER_EXPRESSION(f / fps)).catch(() => undefined);
+      await browser.flush().catch(() => undefined);
+    }
   }
 
-  /*
-   * OPEN DEFECT: a frame a worker did not walk to is not the frame a sequential render produces.
-   *
-   * Measured on the reference template — 240 frames, four scenes, GPU rasteriser:
-   *
-   *   - Rendering the film with `--workers 1` and `--workers 4` gives **different frame hashes at frames
-   *     200, 210, 220 and 230** and a different MP4 (1,431,078 vs 1,428,633 bytes). So `--workers` changes
-   *     the film, which is the one thing the FrameSink ordering invariant exists to prevent. The sink was
-   *     innocent: it wrote different pixels, faithfully, in the right order.
-   *   - The divergence is not per-chunk. Within a single session, `renderFrame(99/30)` produces **three
-   *     different images**: one as the first call, another after walking frames 0..98, a third on a
-   *     subsequent re-render. Meanwhile consecutive re-renders of an already-visited frame are stable.
-   *   - How far back a worker must walk depends on the scene: a session that walked from frame 0 or 50
-   *     matched the reference at frame 200; sessions starting at 100, 150, 178 or 190 all differed. Frame
-   *     180 matched from every start. So the effect appears inside the *grid* scene (~frame 30..120) and
-   *     persists into `burst`, well past the shot that introduced it.
-   *   - Warm-up does not fix it, at any distance tried (2, 10 or 20 frames), and neither does a contiguous
-   *     versus gapped warm-up. Both of those gave byte-identical results to each other, and both differed
-   *     from the full walk.
-   *
-   * Pixel readback is NOT the cause: two identical sessions produced 0/7 differing pixel digests and 0/7
-   * differing JPEG hashes, so the instrument is sound and the divergence is real.
-   *
-   * The kernel's RNG is stateless (`rng.ts` is all pure functions of a key), so this is not sequencing on
-   * random numbers. It is something in the canvas or the scene's own drawing that depends on what was drawn
-   * before. The next step is to bisect `grid.js` frame by frame with the pixel digest as the instrument —
-   * the same method that found the palette bug — starting from the observation that frame 180 is
-   * order-independent and frame 200 is not.
-   *
-   * UNTIL THAT IS FIXED: pass `--workers 1` for anything whose output must be reproducible. The default in
-   * `templates/project/project.json` is 1 for this reason, and `--workers` above 1 emits a warning. The
-   * ordering invariant and the frame sink are correct and stay; this is a rendering defect upstream of them.
-   */
+
 
   for (let f = chunk.from; f < chunk.to; f++) {
     const t = f / fps;
     const drawStart = Date.now();
     await browser.evaluate(RENDER_EXPRESSION(t));
+    // Before capturing, not after: canvas drawing is queued and a screenshot can rasterise a frame whose
+    // draw calls have not all run. Without this the film depends on the capture schedule, which is how
+    // `--workers` came to change the output. See `Browser.flush` for the measurements.
+    await browser.flush();
     const screenshot = await browser.screenshot({
       format: "jpeg",
       quality: 0.94,
@@ -468,6 +451,7 @@ export async function renderStills(options: {
 
     for (const t of options.times) {
       await browser.evaluate(RENDER_EXPRESSION(t));
+      await browser.flush();
       const png = await browser.screenshot({ format: "png", timeoutMs: 180_000 });
       const name = `t${t.toFixed(3).replace(".", "_")}.png`;
       const full = join(options.outDir, name);

@@ -277,6 +277,39 @@ export class Browser {
     );
   }
 
+  /**
+   * Force the page's canvas work to finish before returning.
+   *
+   * **This is the fix for the worst bug this framework has had, and it is not obvious.** Canvas drawing is
+   * queued and returns immediately; a screenshot taken afterwards can rasterise a frame whose draw calls
+   * have not all executed. Nothing errors, nothing warns, and the result depends on how much other work is
+   * queued — which means it depends on how far a worker has walked and how often it has captured. Measured
+   * consequences, all on the reference template:
+   *
+   *   - `--workers 4` produced a **different film** from `--workers 1`: 4 of 24 sampled frames differed, and
+   *     the MP4 differed by 2.5 KB. That is the one thing the FrameSink ordering invariant cannot prevent.
+   *   - The same `t` produced **three different images** in three sessions that differed only in where their
+   *     walk began, while `engine.problems` stayed empty and the scene's own arithmetic — printed into the
+   *     frame as text — was identical to nine decimal places in all three.
+   *
+   * A one-pixel `getImageData` read is a synchronisation point: it forces queued drawing to complete and
+   * cannot itself change a pixel. Measured with it: a whole-film walk and a chunk starting at frame 180 agree
+   * on every sampled frame. Without it: they disagree on all of them.
+   */
+  async flush(timeoutMs = 30_000): Promise<void> {
+    await this.evaluate(
+      `(function(){
+        var c = document.getElementById("out") || document.querySelector("canvas");
+        if (!c) return false;
+        var g = c.getContext("2d");
+        if (!g) return false;
+        g.getImageData(0, 0, 1, 1);
+        return true;
+      })()`,
+      { timeoutMs },
+    );
+  }
+
   async navigate(url: string, timeoutMs = 60_000): Promise<void> {
     await this.send("Page.enable", {}, 10_000);
     const loaded = new Promise<void>((resolve, reject) => {

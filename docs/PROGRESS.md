@@ -189,52 +189,59 @@ times with no active shot) or `render.noDeadFrames` (which compares consecutive 
 neither asks whether a frame contains anything, and a shot drawing its subject in its own background colour
 satisfies both while being completely black.
 
-### 5. `cvpw render` produces an MP4 — and `--workers > 1` changes the film
+### 5. `cvpw render` produces an MP4, and `--workers` does not change it
 
-**The render path works end to end.** A 240-frame film renders to a valid MP4: `h264`, 1920×1080,
-`yuv420p`, exactly 240 frames, exactly 8.000 s, 1.4 MiB, at 64–90 ms/frame through the hardware rasteriser
-with `libx264`. The encoder probe correctly rejects `h264_nvenc`, which ffmpeg *lists* and which fails with
-exit `-22 Invalid argument` — the case ADR 0006 exists for.
+**Both halves of the framework's central claim now hold, verified by hash.**
 
-**Two sequential renders are byte-identical** — the same SHA-256 for the MP4, 24/24 sampled frame hashes
-equal. So the framework's central claim holds for the configuration that matters most: a render is
-reproducible.
+| Claim | Measurement |
+|---|---|
+| A render is reproducible | two sequential renders: identical MP4 SHA-256, 24/24 frame hashes equal |
+| `--workers` is output-neutral | `--workers 1` and `--workers 4`: **byte-identical MP4** (1,354,902 bytes, same SHA-256), 24/24 frame hashes equal |
 
-**But `--workers 4` produces a different film from `--workers 1`.** Same project, same code:
+A 240-frame film renders to a valid MP4 — `h264`, 1920×1080, `yuv420p`, exactly 240 frames, exactly 8.000 s,
+1.3 MiB, 64–90 ms/frame through the hardware rasteriser. The encoder probe correctly rejects `h264_nvenc`,
+which ffmpeg *lists* and which fails with exit `-22 Invalid argument`: the case ADR 0006 exists for.
 
-| | frame 200 | 210 | 220 | 230 | MP4 bytes |
-|---|---|---|---|---|---|
-| `--workers 1` | `e3cb6071…` | `d35768ee…` | `56432c15…` | `6ee961fa…` | 1,431,078 |
-| `--workers 4` | `52dc9d12…` | `1416cec2…` | `b2330ef2…` | `60ff45e7…` | 1,428,633 |
+**Getting there meant finding the worst bug in the project — a two-line fix behind a false trail.** An earlier
+revision of this file recorded the opposite conclusion: that `--workers 4` produced a different film and that
+the cause was an unresolved order-dependence in the scenes. Both halves of that were wrong.
 
-20 of 24 sampled frames match; the four that differ sit just after the third worker's chunk boundary. **The
-frame sink is innocent** — it wrote different pixels, faithfully, in exactly the right order.
+The trail, in the order it was walked:
 
-**The cause is upstream of chunking.** Within a *single* session, `renderFrame(99/30)` produced three
-different images: one as the first call, another after walking frames 0..98, and a third on a subsequent
-re-render. Consecutive re-renders of an already-visited frame are stable. The divergence also depends on how
-far back the walk began — sessions starting at frame 0 or 50 matched the reference at frame 200, while
-sessions starting at 100, 150, 178 or 190 all differed, and frame 180 matched from every start. So the effect
-appears inside the *grid* scene and persists into `burst`, long past the shot that introduced it.
+1. `--workers 4` differed from `--workers 1` at frames 200/210/220/230 → looked like a chunking problem.
+2. Frame 180 matched from every start, frame 200 from none → looked like a bug in the `hold` scene.
+3. `hold` rendered **three different images** from three walk histories, while its scene arithmetic — printed
+   into the frame as text — was **identical to nine decimal places** in all three. That ruled out arithmetic.
+4. JPEG captures of one fixed frame were perfectly stable (1 distinct hash in 6), while the *pixel digest*
+   changed once and then stabilised. That pointed at GPU readback timing.
+5. Two *identical* walks in two sessions gave 0/6 differing hashes, proving the harness was sound and the
+   divergence real rather than noise.
+6. Rendering with an explicit synchronisation after every draw: **0/3 differing**. Without it: **3/3**.
 
-Ruled out by measurement rather than by argument:
+The cause: **canvas drawing is queued and returns immediately, so a screenshot can rasterise a frame whose
+draw calls have not all executed.** Nothing errored, nothing warned, and the result depended on how much work
+was queued — a function of how far a worker had walked and how often it had captured. A one-pixel
+`getImageData` read forces the queue to drain and cannot itself change a pixel.
 
-- **Pixel readback.** Two identical sessions gave 0/7 differing pixel digests *and* 0/7 differing JPEG
-  hashes, so the instrument is sound and the divergence is real.
-- **The kernel's RNG.** `rng.ts` is entirely pure functions of a key; there is no sequence to get out of step.
-- **Warm-up distance.** 2, 10 and 20 frames gave byte-identical results to each other and all differed from
-  the full walk; contiguous and gapped warm-up were identical to each other.
-- **The JPEG encoder.** Frame hashes come from captured bytes, which was the first suspect. The pixel digests
-  above eliminate it.
+Two changes, both measured:
 
-**What changed as a result:** `templates/project/project.json` now defaults to `workers: 1`, and the renderer
-warns whenever more are requested. That is a deliberate downgrade of a headline feature — parallelism is the
-reason the sink has an ordering invariant at all — but shipping it silently would mean every `qa/gold.json`
-baseline depended on an undocumented worker count.
+- **`Browser.flush()`** after every draw and before every capture. This removed the *drift*: the differences
+  moved from frames scattered through `hold` to exactly the chunk-boundary frames 60, 120 and 180.
+- **Warm-up walks from the film's start**, not a couple of frames back. This removed the boundary difference,
+  because a chunk's first frame is drawn with a different amount of queued work behind it than the same frame
+  drawn mid-walk. The cost is real: a 4-way split walks 0+60+120+180 = 360 frames of warm-up for a 240-frame
+  film, roughly 2.5× the drawing. `--workers 1` pays nothing and is byte-identical to any other count, which
+  is what makes the knob safe to raise.
 
-The next step is the method that found the palette bug: bisect `grid.js` frame by frame with the pixel digest
-as the instrument, starting from the fact that frame 180 is order-independent and frame 200 is not.
+`workers` in `templates/project/project.json` is back to 2, and the renderer warns only in the one case that
+genuinely is not reproducible: parallelism with `warmupFrames: 0`.
 
+**The lesson worth keeping.** Every one of the first five observations was consistent with "the scenes are
+order-dependent", and that explanation would have been accepted by anyone reading the report. It was wrong.
+What broke it open was printing the scene's own arithmetic *into the frame as text* and finding it identical
+in all three sessions — at which point the arithmetic could not be the cause, and the only thing left was the
+instrument. When a measurement says something surprising, suspect the measurement before rewriting the code
+it accuses.
 ### 6. `@cvpw/runtime` is still contract-only
 
 ### 7. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
@@ -329,13 +336,11 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **Bisect `grid.js` until a frame stops depending on its history.** This is the highest-value open
-   defect, because until it is fixed `--workers` cannot be raised and the gold-frame gate cannot hold a
-   baseline that survives a worker-count change. Method: the pixel digest, frame by frame, from the fact
-   that frame 180 is order-independent and frame 200 is not. It is the same bisection that found the
-   palette bug and it took ten minutes once it was set up as a measurement.
-2. **`qa/gold.json` and `cvpw check --determinism`.** Not worthwhile before (1): a baseline that changes
-   when a worker count changes is not a baseline.
+1. **`qa/gold.json` and `cvpw check --determinism`.** This is now unblocked and is the highest-value next
+   step: `--workers` is output-neutral and a render is reproducible, so a gold baseline is finally meaningful.
+   It is the gate that turns "reproducible" from a claim into a regression test.
+2. **The remaining CLI commands** — `analyze`, `cues`, `lyrics`, `lint`, `sheet`, `review`, `handoff`,
+   `deliver`, `skill` — over implementations that already exist or are specified.
 3. **Then `cvpw analyze` for a scaffolded project**, so the template's `cue(...)` expressions can become
    `b()`, `h()` and `HIT(...)` and the framework's central claim — that a cut lands on a measured beat —
    becomes demonstrable rather than merely implemented.
