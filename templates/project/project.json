@@ -36,7 +36,7 @@
   "style": "minimal-paper",
 
   "render": {
-    "workers": 2,
+    "workers": 1,
     "frameCodec": "jpeg",
     "frameQuality": 0.94,
     "motionBlur": { "samples": 1 },

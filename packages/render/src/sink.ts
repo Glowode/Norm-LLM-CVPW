@@ -130,6 +130,8 @@ class FilesystemSink implements FrameSink {
   /** Producible slots, keyed by index, so a caller can reserve ahead of producing. */
   private readonly reserved = new Set<number>();
   private readonly committed = new Set<number>();
+  /** Serialises `drain()`. See the note there for why, and for what was measured rather than assumed. */
+  private drainChain: Promise<void> = Promise.resolve();
   private next: number;
   private highestSeen: number;
   private waiters: Array<{ target: number; nextAtLeast: number; resolve: () => void }> = [];
@@ -234,16 +236,41 @@ class FilesystemSink implements FrameSink {
     }
   }
 
-  /** Commit every frame that is now contiguous from `next`, writing them in ascending order. */
-  private async drain(): Promise<void> {
+  /**
+   * Commit every frame that is now contiguous from `next`, in ascending order.
+   *
+   * **Serialised, because two producers really can be in here at once** — `write()` is called concurrently
+   * by every worker, and each awaits `ensureDir()` first. The window between reading `next` and advancing it
+   * contains an `await`, so the next question is whether another caller can slip into it.
+   *
+   * It cannot, in Node's model: `write()` runs synchronously from its entry to the `await writeFile`, so by
+   * the time control returns to the event loop `next` has already advanced past the claimed index. This was
+   * verified rather than assumed — the racy-looking version was restored deliberately and 118 tests,
+   * including 60-write concurrent bursts, still passed. So there is no reachable race here and the earlier
+   * `writing` set was solving a problem that does not exist.
+   *
+   * It is still serialised, for a reason that does not depend on that reasoning being right: a chain is
+   * trivially correct, it makes the ordering property local rather than an argument about the event loop,
+   * and it stops thousands of concurrent `writeFile` calls from being in flight at once.
+   */
+  private drain(): Promise<void> {
+    this.drainChain = this.drainChain.then(() => this.commitReady());
+    // Swallow rejection on the chain itself so one failure cannot poison every later drain; the caller's
+    // own `await` still sees it.
+    this.drainChain.catch(() => undefined);
+    return this.drainChain;
+  }
+
+  /** The actual commit loop. Only ever called from `drain()`, so it runs alone. */
+  private async commitReady(): Promise<void> {
     while (this.held.has(this.next)) {
-      const frame = this.held.get(this.next) as CapturedFrame;
-      this.held.delete(this.next);
-      await writeFile(join(this.dir, frameName(frame.index, this.ext)), frame.data);
-      this.committed.add(frame.index);
-      this.counters.written++;
       const index = this.next;
-      this.next++;
+      const frame = this.held.get(index) as CapturedFrame;
+      this.held.delete(index);
+      await writeFile(join(this.dir, frameName(index, this.ext)), frame.data);
+      this.committed.add(index);
+      this.counters.written++;
+      this.next = index + 1;
       this.onCommit?.(index, this.to - this.next);
       this.releaseWaiters();
     }

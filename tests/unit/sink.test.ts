@@ -112,6 +112,80 @@ describe("FrameSink — the ordering invariant", () => {
   });
 });
 
+/**
+ * Correctness when every producer writes at once.
+ *
+ * These assert an outcome, not the absence of a race — and that distinction is worth stating, because the
+ * first version of this comment claimed the latter. `drain()` was changed to close a race in which two
+ * callers read `next` before either advanced it. The racy version was then restored deliberately to check
+ * these tests caught it: **they did not**, because the window turns out to be unreachable in Node — the
+ * interval between reading `next` and advancing it contains an `await`, but by the time control returns to
+ * the event loop `next` has already moved. So there was no race to catch, and claiming otherwise would have
+ * been a story rather than a measurement.
+ *
+ * `drain()` is still serialised on a promise chain. Not because a race was proven, but because a chain makes
+ * the ordering property local instead of an argument about the event loop, and because it stops thousands of
+ * concurrent `writeFile` calls from being in flight on a long render.
+ *
+ * What these tests genuinely cover: that concurrent producers preserve both the *presence* and the *content*
+ * of every frame. A frame written under the wrong index is the failure mode worth fearing here, so the
+ * content check is the one doing the work.
+ */
+describe("FrameSink — concurrent producers", () => {
+  it("keeps every frame when all writes are issued at the same moment, in order", async () => {
+    const dir = await makeDir();
+    const sink = createSink({ dir, from: 0, to: 60, lookahead: 64 });
+    await Promise.all(Array.from({ length: 60 }, (_, i) => sink.write(frame(i))));
+    expect((await sink.close()).frames).toBe(60);
+    const files = (await readdir(dir)).sort();
+    expect(files).toHaveLength(60);
+    expect(files).toEqual(Array.from({ length: 60 }, (_, i) => frameName(i, "rgb")));
+    for (const i of [0, 17, 59]) {
+      expect(await readFile(join(dir, frameName(i, "rgb")), "utf8")).toBe(`frame-${i}`);
+    }
+  });
+
+  it("keeps every frame when all writes are issued at once, shuffled", async () => {
+    const dir = await makeDir();
+    const sink = createSink({ dir, from: 0, to: 60, lookahead: 64 });
+    // A deterministic shuffle, so a failure is reproducible rather than a one-in-twenty mystery.
+    const order = Array.from({ length: 60 }, (_, i) => i).sort(
+      (a, b) => ((a * 7919) % 61) - ((b * 7919) % 61),
+    );
+    await Promise.all(order.map((i) => sink.write(frame(i))));
+    expect((await sink.close()).frames).toBe(60);
+    const files = (await readdir(dir)).sort();
+    expect(files).toEqual(Array.from({ length: 60 }, (_, i) => frameName(i, "rgb")));
+    // Content matters as much as presence: the race's signature is a frame written under the wrong index.
+    for (const i of [0, 30, 59]) {
+      expect(await readFile(join(dir, frameName(i, "rgb")), "utf8")).toBe(`frame-${i}`);
+    }
+  });
+
+  it("survives concurrency across several chunks, which is what --workers does", async () => {
+    const dir = await makeDir();
+    const sink = createSink({ dir, from: 0, to: 120, lookahead: 16 });
+    // Four contiguous chunks, each produced concurrently — the shape `planChunks` gives the renderer.
+    const chunks = [
+      [0, 30],
+      [30, 60],
+      [60, 90],
+      [90, 120],
+    ];
+    await Promise.all(
+      chunks.map(async ([from, to]) => {
+        for (let i = from as number; i < (to as number); i++) await sink.write(frame(i));
+      }),
+    );
+    expect((await sink.close()).frames).toBe(120);
+    const files = await readdir(dir);
+    expect(files).toHaveLength(120);
+    for (const i of [0, 29, 30, 89, 90, 119]) {
+      expect(await readFile(join(dir, frameName(i, "rgb")), "utf8")).toBe(`frame-${i}`);
+    }
+  });
+});
+
 describe("FrameSink — refusals", () => {
   it("refuses a duplicate index, because it means a frame was never rendered", async () => {
     const dir = await makeDir();

@@ -28,8 +28,10 @@ export const CANDIDATE_ENCODERS = ["h264_nvenc", "libx264"] as const;
 export interface EncoderProbe {
   name: string;
   usable: boolean;
-  /** The probe's own output, preserved verbatim so a later failure is diagnosable. */
+  /** Why *this* encoder succeeded or failed, in its own words. */
   evidence: string;
+  /** Every candidate tried before this one and why each was rejected. Empty for the first choice. */
+  rejected?: Array<{ name: string; reason: string }>;
   /** The encoder's own ffmpeg arguments, when usable. */
   args?: string[];
 }
@@ -72,6 +74,7 @@ function encoderArgs(name: string, quality: number): string[] {
 export async function probeEncoders(options: ProbeOptions): Promise<EncoderProbe> {
   const quality = options.quality ?? 18;
   const candidates = options.candidates ?? CANDIDATE_ENCODERS;
+  const rejected: Array<{ name: string; reason: string }> = [];
   let last: EncoderProbe = { name: "none", usable: false, evidence: "no candidate encoders were supplied" };
 
   for (const name of candidates) {
@@ -92,19 +95,27 @@ export async function probeEncoders(options: ProbeOptions): Promise<EncoderProbe
     ];
     const result = await run(options.ffmpeg, args, { timeoutMs: options.timeoutMs ?? 30_000 });
     if (result.spawnFailed) {
-      last = { name, usable: false, evidence: `could not run ffmpeg: ${result.error ?? "unknown"}` };
+      const reason = `could not run ffmpeg: ${result.error ?? "unknown"}`;
+      rejected.push({ name, reason });
+      last = { name, usable: false, evidence: reason, rejected: [...rejected] };
       continue;
     }
     if (result.code === 0) {
       return {
         name,
         usable: true,
-        evidence: `5-frame encode succeeded (exit 0)`,
+        evidence: `a 5-frame test encode succeeded`,
+        // Carried forward so the report says WHY this encoder and not an earlier one. Without it a fallback
+        // to libx264 reads as a success with no explanation, and an operator on a machine with a working
+        // GPU has no way to find out that the GPU path was tried and failed.
+        rejected: [...rejected],
         args: encoderArgs(name, quality),
       };
     }
     const text = (result.stderr.trim().split("\n").filter(Boolean).slice(-3).join(" ") || `exit ${result.code}`).trim();
-    last = { name, usable: false, evidence: `exit ${result.code}: ${text.slice(0, 300)}` };
+    const reason = `exit ${result.code}: ${text.slice(0, 300)}`;
+    rejected.push({ name, reason });
+    last = { name, usable: false, evidence: reason, rejected: [...rejected] };
   }
 
   return last;

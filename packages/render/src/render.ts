@@ -124,6 +124,14 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
   const warmupFrames = request.warmupFrames ?? 2;
   const warnings: string[] = [];
   const errors: string[] = [];
+  if (request.workers > 1) {
+    // Not a style preference: see the OPEN DEFECT note in `runChunk`. Parallel workers currently produce a
+    // different film from a sequential render, measured, and the cause is upstream of the sink.
+    warnings.push(
+      `--workers ${request.workers} does not yet reproduce a sequential render exactly (see the OPEN DEFECT ` +
+        `note in packages/render/src/render.ts). Use --workers 1 for any output that must be reproducible.`,
+    );
+  }
   const startedAt = Date.now();
 
   // --- encoder, chosen by probing rather than by listing ------------------------------------------
@@ -139,7 +147,16 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
     );
   }
   if (encoder.name !== "h264_nvenc") {
-    warnings.push(`encoder ${encoder.name}: hardware encoding was not available (${encoder.evidence})`);
+    // Report the *attempt sequence*, not a bare claim. The first version of this read "hardware encoding was
+    // not available (a 5-frame test encode succeeded)", which is self-contradictory and useless — the
+    // parenthesised evidence belonged to the encoder that WON, not the ones that lost. A probe result is only
+    // actionable when it says what was tried and why each attempt failed.
+    const why = (encoder.rejected ?? []).map((entry) => `${entry.name}: ${entry.reason}`).join("; ");
+    warnings.push(
+      why
+        ? `using ${encoder.name} because the preferred encoder(s) failed — ${why}`
+        : `using ${encoder.name}; no preferred encoder was tried`,
+    );
   }
 
   const server = await startStaticServer({ root: request.root });
@@ -322,13 +339,49 @@ async function runChunk(args: ChunkArgs): Promise<{ renderer: string; software: 
     .catch(() => "unknown");
   const software = SOFTWARE_MARKERS.some((m) => renderer.toLowerCase().includes(m));
 
-  // Warm-up: render and DISCARD frames at the head of the timeline. ADR 0007 measured a session's first
-  // two frames as the one thing that is not reproducible across sessions, and no amount of drawing other
-  // frames changes it — so the fix is to spend two frames and make the captured range start warm.
-  for (let i = 0; i < args.warmupFrames; i++) {
-    const t = (request.from + i) / fps;
-    await browser.evaluate(RENDER_EXPRESSION(t)).catch(() => undefined);
+  // Warm-up: render and DISCARD frames immediately before this worker's own range.
+  //
+  // **This is a mitigation, not a fix — see the block comment below.** It was added after measuring that
+  // every worker used to warm `request.from`, the film's first two frames, so a worker whose chunk began at
+  // frame 180 was still cold when it captured frame 180.
+  const warmStart = Math.max(request.from, chunk.from - args.warmupFrames);
+  for (let f = warmStart; f < chunk.from; f++) {
+    await browser.evaluate(RENDER_EXPRESSION(f / fps)).catch(() => undefined);
   }
+
+  /*
+   * OPEN DEFECT: a frame a worker did not walk to is not the frame a sequential render produces.
+   *
+   * Measured on the reference template — 240 frames, four scenes, GPU rasteriser:
+   *
+   *   - Rendering the film with `--workers 1` and `--workers 4` gives **different frame hashes at frames
+   *     200, 210, 220 and 230** and a different MP4 (1,431,078 vs 1,428,633 bytes). So `--workers` changes
+   *     the film, which is the one thing the FrameSink ordering invariant exists to prevent. The sink was
+   *     innocent: it wrote different pixels, faithfully, in the right order.
+   *   - The divergence is not per-chunk. Within a single session, `renderFrame(99/30)` produces **three
+   *     different images**: one as the first call, another after walking frames 0..98, a third on a
+   *     subsequent re-render. Meanwhile consecutive re-renders of an already-visited frame are stable.
+   *   - How far back a worker must walk depends on the scene: a session that walked from frame 0 or 50
+   *     matched the reference at frame 200; sessions starting at 100, 150, 178 or 190 all differed. Frame
+   *     180 matched from every start. So the effect appears inside the *grid* scene (~frame 30..120) and
+   *     persists into `burst`, well past the shot that introduced it.
+   *   - Warm-up does not fix it, at any distance tried (2, 10 or 20 frames), and neither does a contiguous
+   *     versus gapped warm-up. Both of those gave byte-identical results to each other, and both differed
+   *     from the full walk.
+   *
+   * Pixel readback is NOT the cause: two identical sessions produced 0/7 differing pixel digests and 0/7
+   * differing JPEG hashes, so the instrument is sound and the divergence is real.
+   *
+   * The kernel's RNG is stateless (`rng.ts` is all pure functions of a key), so this is not sequencing on
+   * random numbers. It is something in the canvas or the scene's own drawing that depends on what was drawn
+   * before. The next step is to bisect `grid.js` frame by frame with the pixel digest as the instrument —
+   * the same method that found the palette bug — starting from the observation that frame 180 is
+   * order-independent and frame 200 is not.
+   *
+   * UNTIL THAT IS FIXED: pass `--workers 1` for anything whose output must be reproducible. The default in
+   * `templates/project/project.json` is 1 for this reason, and `--workers` above 1 emits a warning. The
+   * ordering invariant and the frame sink are correct and stay; this is a rendering defect upstream of them.
+   */
 
   for (let f = chunk.from; f < chunk.to; f++) {
     const t = f / fps;

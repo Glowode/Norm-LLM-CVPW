@@ -17,7 +17,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -75,6 +75,8 @@ export class Browser {
     // missing parent producing `ENOENT` on `mkdtemp` reads as a mysterious path error rather than as
     // "the temp root was never created".
     await mkdir(base, { recursive: true });
+    // Sweep first, so a profile left by a killed run cannot collide with the one about to be created.
+    await sweepStaleProfiles(base);
     const profileDir = await mkdtemp(join(base, "profile-"));
     const args = [
       "--headless=new",
@@ -101,9 +103,8 @@ export class Browser {
     let port: number | undefined;
     while (Date.now() < deadline) {
       if (existsSync(portFile)) {
-        const text = readFileSync(portFile, "utf8").trim();
-        const first = Number(text.split(/\r?\n/)[0]);
-        if (Number.isInteger(first) && first > 0) {
+        const first = readDebuggingPort(portFile);
+        if (first !== null) {
           port = first;
           break;
         }
@@ -353,6 +354,58 @@ async function drain(child: ChildProcess): Promise<string> {
     });
     setTimeout(() => resolve(text.trim().slice(-400) || "(no stderr)"), 250);
   });
+}
+
+/**
+ * Read the debugging port, tolerating the moment when the file exists but is not yet readable.
+ *
+ * Chromium creates `DevToolsActivePort` and *then* writes it, and on Windows the create is visible before
+ * the write completes — so `existsSync` is true while `readFileSync` fails with `EBUSY`. That window is a
+ * few milliseconds wide and it sits on the startup path of every worker, which makes it a rare,
+ * load-dependent, unattributable failure: two workers launch at once, one reads the other's half-written
+ * file, and the render dies with `EBUSY: resource busy or locked` naming a file the operator never chose.
+ * Returning null so the poll loop tries again is the whole fix.
+ */
+function readDebuggingPort(path: string): number | null {
+  try {
+    const text = readFileSync(path, "utf8").trim();
+    const first = Number(text.split(/\r?\n/)[0]);
+    return Number.isInteger(first) && first > 0 ? first : null;
+  } catch {
+    // Not ready yet. The caller's loop retries in 100 ms and the deadline still applies.
+    return null;
+  }
+}
+
+/**
+ * Remove profile directories left behind by a run that was killed.
+ *
+ * A killed render never reaches `close()`, so its Chromium profile survives — and a surviving profile is
+ * not merely wasted disk. On Windows the directory stays locked by whatever process is still shutting down,
+ * so a later launch fails with an error about a temp file. Sweeping is what makes a killed render
+ * recoverable by simply running the command again, which is the behaviour an interrupted operator expects.
+ *
+ * Best-effort by design: a profile still locked by a *live* browser stays, and that is correct — removing it
+ * would break a render that is legitimately in progress.
+ */
+async function sweepStaleProfiles(base: string): Promise<number> {
+  let removed = 0;
+  let entries: string[];
+  try {
+    entries = await readdir(base);
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    if (!entry.startsWith("profile-")) continue;
+    try {
+      await rm(join(base, entry), { recursive: true, force: true, maxRetries: 2 });
+      removed++;
+    } catch {
+      // Locked by a live browser: correct to leave alone.
+    }
+  }
+  return removed;
 }
 
 function sleep(ms: number): Promise<void> {

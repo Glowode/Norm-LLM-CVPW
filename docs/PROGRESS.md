@@ -189,9 +189,55 @@ times with no active shot) or `render.noDeadFrames` (which compares consecutive 
 neither asks whether a frame contains anything, and a shot drawing its subject in its own background colour
 satisfies both while being completely black.
 
-### 5. `@cvpw/runtime` is still contract-only
+### 5. `cvpw render` produces an MP4 — and `--workers > 1` changes the film
 
-### 4. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
+**The render path works end to end.** A 240-frame film renders to a valid MP4: `h264`, 1920×1080,
+`yuv420p`, exactly 240 frames, exactly 8.000 s, 1.4 MiB, at 64–90 ms/frame through the hardware rasteriser
+with `libx264`. The encoder probe correctly rejects `h264_nvenc`, which ffmpeg *lists* and which fails with
+exit `-22 Invalid argument` — the case ADR 0006 exists for.
+
+**Two sequential renders are byte-identical** — the same SHA-256 for the MP4, 24/24 sampled frame hashes
+equal. So the framework's central claim holds for the configuration that matters most: a render is
+reproducible.
+
+**But `--workers 4` produces a different film from `--workers 1`.** Same project, same code:
+
+| | frame 200 | 210 | 220 | 230 | MP4 bytes |
+|---|---|---|---|---|---|
+| `--workers 1` | `e3cb6071…` | `d35768ee…` | `56432c15…` | `6ee961fa…` | 1,431,078 |
+| `--workers 4` | `52dc9d12…` | `1416cec2…` | `b2330ef2…` | `60ff45e7…` | 1,428,633 |
+
+20 of 24 sampled frames match; the four that differ sit just after the third worker's chunk boundary. **The
+frame sink is innocent** — it wrote different pixels, faithfully, in exactly the right order.
+
+**The cause is upstream of chunking.** Within a *single* session, `renderFrame(99/30)` produced three
+different images: one as the first call, another after walking frames 0..98, and a third on a subsequent
+re-render. Consecutive re-renders of an already-visited frame are stable. The divergence also depends on how
+far back the walk began — sessions starting at frame 0 or 50 matched the reference at frame 200, while
+sessions starting at 100, 150, 178 or 190 all differed, and frame 180 matched from every start. So the effect
+appears inside the *grid* scene and persists into `burst`, long past the shot that introduced it.
+
+Ruled out by measurement rather than by argument:
+
+- **Pixel readback.** Two identical sessions gave 0/7 differing pixel digests *and* 0/7 differing JPEG
+  hashes, so the instrument is sound and the divergence is real.
+- **The kernel's RNG.** `rng.ts` is entirely pure functions of a key; there is no sequence to get out of step.
+- **Warm-up distance.** 2, 10 and 20 frames gave byte-identical results to each other and all differed from
+  the full walk; contiguous and gapped warm-up were identical to each other.
+- **The JPEG encoder.** Frame hashes come from captured bytes, which was the first suspect. The pixel digests
+  above eliminate it.
+
+**What changed as a result:** `templates/project/project.json` now defaults to `workers: 1`, and the renderer
+warns whenever more are requested. That is a deliberate downgrade of a headline feature — parallelism is the
+reason the sink has an ordering invariant at all — but shipping it silently would mean every `qa/gold.json`
+baseline depended on an undocumented worker count.
+
+The next step is the method that found the palette bug: bisect `grid.js` frame by frame with the pixel digest
+as the instrument, starting from the fact that frame 180 is order-independent and frame 200 is not.
+
+### 6. `@cvpw/runtime` is still contract-only
+
+### 7. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
 
 `packages/kernel/src/engine.ts` typechecks and its contract is specified, but no test renders through it.
 **The engine half of the vertical slice is unproven.**
@@ -231,7 +277,7 @@ Also verified about the render path: the browser is discoverable, its WebGL rend
 client and the static server that `@cvpw/render` exports are implemented and exercised by these spikes;
 what remains unimplemented is the frame sink, the worker loop and the ffmpeg driver.
 
-### 5. Not started, as planned for phase 2
+### 8. Not started, as planned for phase 2
 
 Asset generation and chroma-key; lyric forced alignment (only the LRC path and the timing-table design
 exist); the WebGL2 post chain; the Blender bridge; the style registry's first real styles; the streaming
@@ -283,13 +329,13 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`cvpw render` end to end.** The stills and check paths already drive CDP, so the untested part is
-   narrow: the frame sink under concurrency, the encoder probe, and the MP4. Unit tests cover the sink's
-   ordering; nothing covers the encoder against a real film. This is now the largest untested surface in
-   the framework.
-2. **Then `cvpw render` end to end.** The stills path already drives CDP, so the untested part is narrow:
-   the frame sink under concurrency, the encoder probe, and the MP4. Unit tests cover the sink's ordering;
-   nothing covers the encoder against a real film.
+1. **Bisect `grid.js` until a frame stops depending on its history.** This is the highest-value open
+   defect, because until it is fixed `--workers` cannot be raised and the gold-frame gate cannot hold a
+   baseline that survives a worker-count change. Method: the pixel digest, frame by frame, from the fact
+   that frame 180 is order-independent and frame 200 is not. It is the same bisection that found the
+   palette bug and it took ten minutes once it was set up as a measurement.
+2. **`qa/gold.json` and `cvpw check --determinism`.** Not worthwhile before (1): a baseline that changes
+   when a worker count changes is not a baseline.
 3. **Then `cvpw analyze` for a scaffolded project**, so the template's `cue(...)` expressions can become
    `b()`, `h()` and `HIT(...)` and the framework's central claim — that a cut lands on a measured beat —
    becomes demonstrable rather than merely implemented.
