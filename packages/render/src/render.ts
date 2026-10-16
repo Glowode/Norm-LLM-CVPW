@@ -33,11 +33,15 @@ export interface RenderRequest {
   browser: string;
   /** Extra browser arguments. Defaults to the GPU/throttling set. */
   browserArgs?: readonly string[];
-  ffmpeg: string;
-  ffprobe: string;
+  /** ffmpeg path. Required by `render`, which encodes; a stills-only request does not need it. */
+  ffmpeg?: string;
+  /** ffprobe path. Required by `render`, which verifies the frame count. */
+  ffprobe?: string;
   width: number;
   height: number;
   fps: number;
+  /** Film duration in seconds. Required by the stills path; a range render can derive it from `to`. */
+  duration?: number;
   /** Inclusive first frame. */
   from: number;
   /** Exclusive last frame. */
@@ -123,7 +127,11 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
   const startedAt = Date.now();
 
   // --- encoder, chosen by probing rather than by listing ------------------------------------------
-  const encoder = await probeEncoders({ ffmpeg: request.ffmpeg, quality: request.quality });
+  const ffmpeg = request.ffmpeg;
+  const ffprobe = request.ffprobe;
+  if (!ffmpeg) throw new RenderError("render needs an ffmpeg path; pass `ffmpeg` in the request");
+  if (!ffprobe) throw new RenderError("render needs an ffprobe path; pass `ffprobe` in the request");
+  const encoder = await probeEncoders({ ffmpeg, quality: request.quality });
   if (!encoder.usable) {
     throw new RenderError(
       `no usable encoder: ${encoder.name} failed with ${encoder.evidence}\n` +
@@ -171,7 +179,9 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
   try {
     const chunks = planChunks(request.from, request.to, request.workers);
     const entry = request.entry ?? "engine/index.html";
-    const url = `${server.origin}/${entry.replace(/^\/+/, "")}`;
+    // `?capture` hides the page furniture. Without it the hint bar is inside the capture region and every
+    // frame of the film carries a line of documentation about the framework.
+    const url = `${server.origin}/${entry.replace(/^\/+/, "")}?capture`;
 
     const results = await Promise.all(
       chunks.map(async (chunk) => {
@@ -215,7 +225,7 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
 
     const encodeStarted = Date.now();
     const encoded = await encode({
-      ffmpeg: request.ffmpeg,
+      ffmpeg,
       frameDir,
       pattern: frameName(request.from, frameExtension).replace(/\d{6}/, "%06d"),
       fps,
@@ -286,6 +296,9 @@ async function runChunk(args: ChunkArgs): Promise<{ renderer: string; software: 
   });
   await browser.send("Runtime.enable", {}, 10_000).catch(() => undefined);
 
+  // Before navigating, never after: a viewport change after load forces a relayout, and a canvas that has
+  // already been sized from a stale viewport keeps that size.
+  await browser.setViewport(request.width, request.height, request.dpr ?? 1);
   await browser.navigate(url, 90_000);
 
   for (let i = 0; i < 900; i++) {
@@ -387,7 +400,8 @@ export async function renderStills(options: {
   });
   try {
     const entry = options.request.entry ?? "engine/index.html";
-    await browser.navigate(`${server.origin}/${entry.replace(/^\/+/, "")}`, 90_000);
+    await browser.setViewport(options.request.width, options.request.height, options.request.dpr ?? 1);
+    await browser.navigate(`${server.origin}/${entry.replace(/^\/+/, "")}?capture`, 90_000);
     for (let i = 0; i < 900; i++) {
       const ready = await browser
         .evaluate<boolean>(READY_EXPRESSION, { awaitPromise: true, timeoutMs: 180_000 })

@@ -243,6 +243,39 @@ export class Browser {
     return result.result.value as T;
   }
 
+  /**
+   * Pin the viewport to an exact size before navigating.
+   *
+   * **Without this, capture is silently wrong.** A browser launched with no window-size argument gets a
+   * default window of roughly 800x600, so a page holding a 1920x1080 canvas is laid out with CSS-pixel
+   * dimensions far smaller than the canvas, and `Page.captureScreenshot` returns only the top-left corner
+   * of the film. Nothing errors: the PNG is a plausible size, it opens, and it is a crop. The first render
+   * through this framework produced four stills of a 756x488 corner and a black rectangle, which reads as
+   * "the scene draws nothing" rather than "the viewport is the wrong shape".
+   *
+   * `deviceScaleFactor` is set by the caller rather than derived here, because it is the supersampling
+   * decision (`dpr`), which belongs to the render request and not to the transport.
+   */
+  async setViewport(width: number, height: number, deviceScaleFactor = 1): Promise<void> {
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
+      throw new CdpError(`refusing a ${width}x${height} viewport`, "Emulation.setDeviceMetricsOverride");
+    }
+    await this.send(
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: Math.round(width),
+        height: Math.round(height),
+        deviceScaleFactor,
+        mobile: false,
+        // The canvas is the whole page, so the visible viewport and the layout viewport must agree —
+        // otherwise a scrollbar or an inset shifts the film inside the capture.
+        screenWidth: Math.round(width),
+        screenHeight: Math.round(height),
+      },
+      15_000,
+    );
+  }
+
   async navigate(url: string, timeoutMs = 60_000): Promise<void> {
     await this.send("Page.enable", {}, 10_000);
     const loaded = new Promise<void>((resolve, reject) => {

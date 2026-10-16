@@ -1,0 +1,42 @@
+{
+  "$schema": "schemas/cues.schema.json",
+  "schemaVersion": 1,
+  "duration": 8,
+
+  "cues": [
+    {
+      "id": "open",
+      "t": 0.0,
+      "source": "manual",
+      "label": "the film starts",
+      "note": "Not a musical moment: the timeline has to begin somewhere, and beginning at 0 is honest about that."
+    },
+    {
+      "id": "grid_in",
+      "t": 1.02,
+      "source": "manual",
+      "label": "the grid arrives",
+      "note": "Placeholder. Once `cvpw analyze` has run against real audio, run `cvpw cues` to settle this onto a measured onset and its source becomes `measured`."
+    },
+    {
+      "id": "chorus",
+      "t": 4.02,
+      "source": "manual",
+      "label": "the chorus lands",
+      "note": "The one moment the film is built around. If this is wrong, every shot after it is wrong too."
+    },
+    {
+      "id": "burst_end",
+      "t": 6.52,
+      "source": "manual",
+      "label": "the burst has settled",
+      "note": "The end of the loudest shot. Equal to `settle` today, and named separately because they are two different decisions: one ends a shot, the other begins the last one."
+    },
+    {
+      "id": "settle",
+      "t": 6.52,
+      "source": "manual",
+      "label": "the last image holds"
+    }
+  ]
+}

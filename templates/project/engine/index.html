@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>cvpw project</title>
+    <style>
+      /* The canvas is the film. Everything else on this page is a frame around it, and nothing here may
+         contribute pixels to the capture: the layout keeps the canvas at the top-left at exactly its
+         backing-store size so a screenshot of the region is the frame. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0b0d14;
+        overflow: hidden;
+      }
+      #out {
+        display: block;
+        position: absolute;
+        inset: 0;
+        margin: 0;
+      }
+      /* Only shown when the page is opened by a human. `?capture` hides it so it can never reach a frame. */
+      #hint {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        padding: 6px 10px;
+        font: 12px/1.4 ui-monospace, monospace;
+        color: #8a8aa0;
+        background: rgba(11, 13, 20, 0.8);
+        pointer-events: none;
+      }
+      body.capture #hint {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="out" width="1920" height="1080"></canvas>
+    <div id="hint">
+      the film is drawn by <code>engine/timeline.js</code> · <code>cvpw stills</code> /
+      <code>cvpw render</code> drive <code>window.cvpw.renderFrame(t)</code>
+    </div>
+    <script type="module">
+      // `?capture` is set by the render backend. It hides the page furniture and disables nothing else:
+      // there is no separate export code path, which is what makes the preview and the master the same
+      // film rather than two implementations that agree until they do not.
+      if (new URLSearchParams(location.search).has("capture")) {
+        document.body.classList.add("capture");
+      }
+      import("./main.js");
+    </script>
+  </body>
+</html>

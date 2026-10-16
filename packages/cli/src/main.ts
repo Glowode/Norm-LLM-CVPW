@@ -18,7 +18,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { COMMON_FLAGS, getBool, parseArgs, renderHelp, type CommandHelp } from "./args.js";
+import { COMMON_FLAGS, getBool, getList, getNumber, getString, parseArgs, renderHelp, type CommandHelp } from "./args.js";
 import { doctorProbe, printDoctor } from "./doctor.js";
 import { detectBrowser, headlessProbe } from "./browser.js";
 import {
@@ -218,6 +218,266 @@ register({
   },
 });
 
+// --- new -----------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "new",
+    summary: "Scaffold a project from templates/project.",
+    usage: "cvpw new <dir> [--song <file>] [--lyrics <file>] [--template <name>] [--no-vendor] [--force]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "song", type: "value", value: "<file>", doc: "Audio to import. Copied, never converted or edited." },
+          { name: "lyrics", type: "value", value: "<file>", doc: "Lyrics to import. Whether they may be published is a separate decision." },
+          { name: "template", type: "value", value: "<name>", doc: "Template under templates/.", default: "project" },
+          { name: "no-vendor", type: "boolean", doc: "Skip copying the kernel. The project cannot render until `cvpw link` runs." },
+          { name: "force", type: "boolean", doc: "Write into a non-empty directory. Announced when used." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw new ../my-film --song song.wav --lyrics lyrics.txt", "cvpw new ../scratch --no-vendor"],
+    notes: [
+      "The kernel is copied into vendor/kernel so the project is self-contained: a render serves the",
+      "project directory, and a relative import escaping that root cannot be loaded by the page.",
+    ],
+  },
+  async run(args) {
+    const dir = args.positionals[0];
+    if (!dir) throw new UsageError("cvpw new needs a target directory", "for example: cvpw new ../my-film");
+    const song = typeof args.flags.get("song") === "string" ? String(args.flags.get("song")) : undefined;
+    const lyrics = typeof args.flags.get("lyrics") === "string" ? String(args.flags.get("lyrics")) : undefined;
+    const template = typeof args.flags.get("template") === "string" ? String(args.flags.get("template")) : undefined;
+
+    const { scaffold, describeNew } = await import("./commands/new.js");
+    const result = await scaffold({
+      dir,
+      ...(song ? { song } : {}),
+      ...(lyrics ? { lyrics } : {}),
+      ...(template ? { template } : {}),
+      force: getBool(args, "force"),
+      noVendor: getBool(args, "no-vendor"),
+    });
+
+    const summary = describeNew(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of summary) log.info(line);
+      log.info("");
+      log.info("next:");
+      for (const step of result.nextSteps) log.info(`  ${step}`);
+      log.info("");
+    }
+    return {
+      ok: true,
+      command: "new",
+      schemaVersion: 1,
+      project: result.root,
+      result,
+      warnings: result.vendored
+        ? []
+        : [{ code: "kernel.not-vendored", message: "the project cannot render until `cvpw link` runs" }],
+      errors: [],
+      summary,
+    };
+  },
+});
+
+// --- validate ------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "validate",
+    summary: "JSON Schema validation of every artifact, plus the checks no single schema can express.",
+    usage: "cvpw validate [--all] [--artifact <path>] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "all", type: "boolean", doc: "Report missing optional artifacts too, not only present ones." },
+          { name: "artifact", type: "value", value: "<path>", doc: "Validate one file." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw validate", "cvpw validate --all --json", "cvpw validate --artifact timeline.json"],
+    notes: [
+      "Cross-artifact checks are the ones that earn their keep: a cue a timeline references but that no",
+      "longer exists, a time expression the timebase cannot substantiate, text outside the whitelist.",
+      "All of those produce a finished film that is wrong, which is the worst outcome available.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory; run this inside a project");
+    const artifact = typeof args.flags.get("artifact") === "string" ? String(args.flags.get("artifact")) : undefined;
+    const { validateProject, validateEnvelope } = await import("./commands/validate.js");
+    const result = await validateProject({ root, all: getBool(args, "all"), ...(artifact ? { artifact } : {}) });
+    const envelope = validateEnvelope(result);
+    if (!args.json) {
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+      log.info(result.ok ? "every artifact validates" : "validation failed — see above");
+    }
+    return { ...envelope, project: root };
+  },
+});
+
+// --- stills --------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "stills",
+    summary: "Render stills at given times, with a manifest naming the shots active in each.",
+    usage: "cvpw stills --times <a,b,c> [--overlay] [--out <dir>] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "times", type: "value", value: "<a,b,c>", doc: "Seconds, or time expressions such as cue('chorus').", repeat: true },
+          { name: "overlay", type: "boolean", doc: "Burn in time, frame and active shot ids. Review only; never a master." },
+          { name: "out", type: "value", value: "<dir>", doc: "Output directory, relative to the project.", default: "review/stills" },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw stills --times 0,2,4 --overlay", "cvpw stills --times \"cue('chorus')\" --overlay"],
+    notes: [
+      "Writes review/stills/manifest.json naming the time, frame and shots for every image. An agent that",
+      "has looked at a PNG but cannot say which shot produced it will edit the wrong file.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const raw = getList(args, "times").flatMap((entry) => entry.split(",")).filter((entry) => entry.trim() !== "");
+    if (!raw.length) throw new UsageError("cvpw stills needs --times", "for example: --times 0,2,4");
+    const { resolveTimes, runStills } = await import("./commands/render.js");
+    const times = await resolveTimes(root, raw);
+    const outFlag = typeof args.flags.get("out") === "string" ? String(args.flags.get("out")) : undefined;
+    const result = await runStills({
+      root,
+      times,
+      ...(outFlag ? { outDir: join(root, outFlag) } : {}),
+      overlay: getBool(args, "overlay"),
+    });
+    const short = (p: string): string => p.replace(root, "").replace(/^[/\\]/, "").replace(/\\/g, "/");
+    const summary = [
+      `wrote ${result.files.length} still(s)`,
+      ...times.map((entry, i) => `  ${entry.label} -> ${result.files[i] ? short(result.files[i] as string) : "(failed)"}`),
+      `  manifest: ${short(result.manifestPath)}`,
+      "LOOK AT THEM. A still that was rendered and not opened is not a review.",
+    ];
+    if (!args.json) {
+      log.info("");
+      for (const line of summary) log.info(line);
+      log.info("");
+    }
+    return {
+      ok: result.files.length === times.length,
+      command: "stills",
+      schemaVersion: 1,
+      project: root,
+      artifactsWritten: [...result.files, result.manifestPath],
+      result: { files: result.files, manifest: result.manifestPath, times },
+      warnings: [],
+      errors: [],
+      summary,
+    };
+  },
+});
+
+// --- render --------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "render",
+    summary: "Frames to MP4, through an ordered sink and a probed encoder.",
+    usage: "cvpw render [--name <n>] [--workers <n>] [--from <f>] [--to <f>] [--preview] [--quality <n>] [--allow-software] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "name", type: "value", value: "<n>", doc: "Output basename under render/.", default: "master" },
+          { name: "workers", type: "value", value: "<n>", doc: "Concurrent pages. The output MUST NOT depend on this value." },
+          { name: "from", type: "value", value: "<frame>", doc: "First frame index." },
+          { name: "to", type: "value", value: "<frame>", doc: "Last frame index, exclusive. Defaults to the whole film." },
+          { name: "preview", type: "boolean", doc: "Half resolution and a fast encoder. Never delivered as a master." },
+          { name: "quality", type: "value", value: "<n>", doc: "Encoder quality: crf for libx264, cq for NVENC." },
+          { name: "allow-software", type: "boolean", doc: "Permit a software rasteriser. Off by default: ~10x slower and a different artefact." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw render --workers 2", "cvpw render --preview", "cvpw render --name shot-check --from 0 --to 30"],
+    notes: [
+      "Frames are hashed from the CAPTURED bytes, not from an in-page pixel read: the witness has to be",
+      "the artefact that ships (ADR 0007). Every failure path deletes the output, because a truncated",
+      "MP4 passes an existence check and plays for thirty seconds.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { runRender, renderEnvelope } = await import("./commands/render.js");
+    const name = typeof args.flags.get("name") === "string" ? String(args.flags.get("name")) : undefined;
+
+    log.info("");
+    const outcome = await runRender({
+      root,
+      ...(name ? { name } : {}),
+      ...(getString(args, "workers") !== undefined ? { workers: getNumber(args, "workers") } : {}),
+      ...(getString(args, "from") !== undefined ? { from: getNumber(args, "from") } : {}),
+      ...(getString(args, "to") !== undefined ? { to: getNumber(args, "to") } : {}),
+      ...(getString(args, "quality") !== undefined ? { quality: getNumber(args, "quality") } : {}),
+      preview: getBool(args, "preview"),
+      allowSoftware: getBool(args, "allow-software"),
+      ...(args.json ? {} : { onProgress: (line: string) => log.info(line) }),
+    });
+    const envelope = renderEnvelope(outcome, root, "render");
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- storyboard ----------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "storyboard",
+    summary: "Resolve every time expression, verify coverage, and write timeline.json plus docs/STORYBOARD.md.",
+    usage: "cvpw storyboard [--json]",
+    groups: [{ title: "flags", flags: [...COMMON_FLAGS] }],
+    examples: ["cvpw storyboard", "cvpw storyboard --json"],
+    notes: [
+      "engine/timeline.js stays the source of truth; timeline.json is DERIVED and must not be hand-edited.",
+      "A coverage gap is a failure, not a warning: it renders as a marked black frame.",
+      "Runs entirely in Node. If it cannot, the timeline touched the DOM at import time — which is a",
+      "contract violation, because a broken expression must be findable without launching a browser.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { buildStoryboard, storyboardEnvelope } = await import("./commands/storyboard.js");
+    const result = await buildStoryboard(root);
+    const envelope = storyboardEnvelope(result, root);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
 // --- not-yet-implemented commands -----------------------------------------------------------------
 
 /**
@@ -250,31 +510,9 @@ function stub(
   });
 }
 
-stub(
-  "new",
-  "Scaffold a project from templates/project.",
-  "cvpw new <dir> [--song <file>] [--lyrics <file>] [--template <name>] [--force]",
-  "docs/WORKFLOW.md stage 0",
-  [
-    { name: "song", type: "value", value: "<file>", doc: "Audio to import. Never modified by a tool." },
-    { name: "lyrics", type: "value", value: "<file>", doc: "LRC or plain text lyrics." },
-    { name: "template", type: "value", value: "<name>", doc: "Template under templates/.", default: "project" },
-    { name: "force", type: "boolean", doc: "Write into a non-empty directory. Announced when used." },
-  ],
-  ["templates/project/ does not exist yet, so there is nothing to copy. See docs/PROGRESS.md."],
-);
 
-stub(
-  "validate",
-  "JSON Schema validation of every artifact in a project.",
-  "cvpw validate [--all] [--artifact <path>] [--json]",
-  "docs/CONTRACTS.md §1 and schemas/",
-  [
-    { name: "all", type: "boolean", doc: "Validate every known artifact, not just the ones present." },
-    { name: "artifact", type: "value", value: "<path>", doc: "Validate one file." },
-  ],
-  ["The schema registry and the AJV validator are implemented in src/validate.ts; only the command wiring is pending."],
-);
+
+
 
 stub(
   "analyze",
@@ -294,21 +532,10 @@ stub(
 
 stub("cues", "Settle cue guesses onto measured onsets. Never overwrites a manual cue.", "cvpw cues [--json]", "docs/WORKFLOW.md stage 2");
 stub("lyrics", "LRC or plain text to lyric timing.", "cvpw lyrics [--join <file>] [--json]", "skills/cvpw-timing/references/02-lyric-timing.md");
-stub("storyboard", "timeline.json plus docs/STORYBOARD.md, with every time expression resolved.", "cvpw storyboard [--json]", "docs/WORKFLOW.md stage 3");
+
 stub("assets", "Validate assets/manifest.json. Generation is phase 2.", "cvpw assets [--reindex] [--json]", "docs/WORKFLOW.md stage 4");
 
-stub(
-  "stills",
-  "Render stills at given times, optionally with the debug overlay.",
-  "cvpw stills --times <a,b,c> [--only <block>] [--overlay] [--out <dir>] [--json]",
-  "docs/WORKFLOW.md stage 6",
-  [
-    { name: "times", type: "value", value: "<a,b,c>", doc: "Times in seconds, or time expressions." },
-    { name: "only", type: "value", value: "<block>", doc: "Restrict to one block's time range." },
-    { name: "overlay", type: "boolean", doc: "Burn in time, frame and active shot ids." },
-    { name: "out", type: "value", value: "<dir>", doc: "Output directory.", default: "review/stills" },
-  ],
-);
+
 
 stub(
   "sheet",
@@ -336,23 +563,7 @@ stub(
   ],
 );
 
-stub(
-  "render",
-  "Frames to MP4, with an ordered sink and a probed encoder.",
-  "cvpw render [--name <n>] [--workers <n>] [--only <block>] [--preview] [--json]",
-  "docs/ARCHITECTURE.md §7, ADR 0004, ADR 0006",
-  [
-    { name: "name", type: "value", value: "<n>", doc: "Output basename.", default: "master" },
-    { name: "workers", type: "value", value: "<n>", doc: "Concurrent pages. Output MUST NOT depend on this.", default: 2 },
-    { name: "only", type: "value", value: "<block>", doc: "Render one block's range." },
-    { name: "preview", type: "boolean", doc: "Half resolution, fast encoder. Never delivered as a master." },
-    { name: "allow-software", type: "boolean", doc: "Permit a software rasteriser. Off by default." },
-  ],
-  [
-    "@cvpw/render is contract-only: the FrameSink and RenderRequest interfaces are written down,",
-    "including the ordering invariant that makes --workers output-neutral; the worker loop is not.",
-  ],
-);
+
 
 stub(
   "check",

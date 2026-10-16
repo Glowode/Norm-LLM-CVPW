@@ -115,11 +115,43 @@ All three were caught by the sink tests rather than by a render, which is the po
 ordering invariant directly: it is a correctness property, and the failure it prevents — a film with one
 frame in the wrong place — is invisible without it.
 
-### 3. `templates/project/` and `examples/minimal/` are empty
+### 3. `templates/project/` exists and runs, but its `open` scene renders nearly blank
 
-The scaffold and the committed slice are specified and not built. Until they exist, `cvpw new` has
-nothing to copy, and there is no runnable end-to-end example in the repository. **This is now the main
-blocker for everything else.**
+**The pipeline works end to end.** `cvpw new` scaffolds a self-contained project with the kernel vendored
+into `vendor/kernel`; `cvpw storyboard` resolves every time expression and writes `timeline.json` plus
+`docs/STORYBOARD.md`; `cvpw validate` passes all 9 cross-artifact checks; `cvpw stills` drives headless Edge
+through CDP and writes 1920×1080 PNGs with a manifest. Two shots render correctly: `burst` produces its
+particle field, its held core and its "CHORUS" caption, and `grid` produces its lit grid.
+
+**But `open` and `hold` render almost nothing.** The measurement, taken by reading pixels back from the
+canvas at t=0 and t=0.5:
+
+| Reading | Value | Expected |
+|---|---|---|
+| Brightest pixel in the whole 1920×1080 frame | 62 of 765 | ~340 for the declared amber core at 85 % |
+| Largest deviation from the corner pixel | 4 of 765 | a visible core and up to 19 rings |
+| `engine.problems` after the render | `[]` | `[]` — correct, nothing threw |
+
+So the shot draws its background and its vignette and then stops, **and reports nothing wrong**. That
+combination is the worst kind: `cvpw check` would pass, the render would complete, and the film would open
+with several seconds of near-black.
+
+**What it is not.** `cx.layer()` was the first suspect, because both failing scenes used it for their core
+and both working paths did not. It was replaced with a direct draw using `shadowBlur` — the same output,
+byte for byte, to within the PNG encoder's noise. So `cx.layer()` is *not* the cause, and a comment in
+`intro.js` claiming otherwise has been left in place with a correction rather than quietly deleted, because
+the wrong explanation is more useful than no explanation when the next agent hits this.
+
+**What is still unknown.** The scene's arithmetic uses `f.layout.type()` for every dimension, `f.lt` for
+local time, and `envelope`/`decayHit` for its animation. All three exist and are used by `burst`, which
+works. The next step is to bisect by drawing the core at a hard-coded radius with no envelope and no
+`layout.type()`, then add each piece back. That is a fifteen-minute job and it is the first thing to do.
+
+**Not yet attempted:** `cvpw render` has never produced an MP4. The stills path is the same capture code, so
+the frame sink and encoder remain unexercised except by unit tests. `analysis/` has never been produced for
+a scaffolded project, so every time expression in the template is a cue rather than a bar.
+
+### 4. `@cvpw/runtime` is still contract-only
 
 ### 4. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
 
@@ -213,17 +245,21 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`templates/project/`** — the scaffold, and now the main blocker. It must run end to end, so it needs
-   a minimal Canvas2D engine, a manifest-listed scene set and one style. Everything else is waiting on it.
-2. **The remaining CLI commands**, over implementations that already exist: `validate` (the AJV registry
-   is in `packages/cli/src/validate.ts`), `analyze` (defers to `python -m cvpw_py`), `lint` (defers to
-   `@cvpw/audit`), `stills` and `render` (defer to `@cvpw/render`, now implemented), then `check` and
-   `handoff`.
-3. **`@cvpw/runtime`** — the DOM-free loader, needed by `storyboard` and by cross-artifact validation.
-4. Then the vertical slice end to end, `examples/minimal/`, and `gold.json` with its first baseline.
+1. **Bisect the `open` scene until it draws.** Hard-code a circle at the centre of the frame with no
+   envelope, no `layout.type()` and no `rgba()`; confirm it in a pixel read; then add each piece back:
+   `layout.type()`, then the `decayHit` envelope, then `rgba()`, then the rings. Somewhere in that sequence
+   the frame goes blank, and that is the bug. Everything else in this list is cheaper once the reference
+   template actually draws something.
+2. **Then `cvpw render` end to end.** The stills path already drives CDP, so the untested part is narrow:
+   the frame sink under concurrency, the encoder probe, and the MP4. Unit tests cover the sink's ordering;
+   nothing covers the encoder against a real film.
+3. **Then `cvpw analyze` for a scaffolded project**, so the template's `cue(...)` expressions can become
+   `b()`, `h()` and `HIT(...)` and the framework's central claim — that a cut lands on a measured beat —
+   becomes demonstrable rather than merely implemented.
+4. **`@cvpw/runtime`** — the DOM-free loader, needed by `cvpw check`'s cross-artifact gates.
+5. Then `examples/minimal/`, and `gold.json` with its first baseline.
 
-**The renderer's core assumption is no longer an assumption** — ADR 0007 measured it, and the sink's
-ordering invariant has 25 tests behind it. What remains unproven is narrower and cheaper to settle: that
-the whole chain produces an MP4, and that `window.cvpw.renderFrame(t)` driven through the *kernel engine*
-(rather than a spike page) behaves the same way. The spikes used a page written for the purpose; the
-engine has never been asked to draw anything.
+What is *proven* now, and did not exist before this session: a project scaffolds itself from the template,
+validates, storyboards, and renders 1920×1080 stills through headless Edge — with the kernel vendored so the
+project is self-contained and movable. `burst` and `grid` produce real images. The framework's plumbing
+works; one scene's arithmetic does not, and it is found by bisection rather than by more architecture.

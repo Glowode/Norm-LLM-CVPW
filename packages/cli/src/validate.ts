@@ -10,7 +10,13 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { Ajv, type ErrorObject, type ValidateFunction } from "ajv";
+// The 2020-12 dialect build, not the default `ajv` entry point. Our schemas declare
+// `"$schema": "https://json-schema.org/draft/2020-12/schema"`, and plain Ajv only knows draft-07, so
+// `compile()` fails with `no schema with key or ref` for every file. Importing the dialect that matches
+// what the schemas actually say is the fix; rewriting the schemas to draft-07 to suit the default import
+// would mean giving up 2020-12 keywords for no gain.
+import { Ajv2020 } from "ajv/dist/2020.js";
+import type { ErrorObject, ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 
 import { readJson, schemasDir } from "./shared.js";
@@ -47,7 +53,7 @@ export class SchemaRegistry {
 
   static async load(dir: string = schemasDir()): Promise<SchemaRegistry> {
     const registry = new SchemaRegistry();
-    const ajv = new Ajv({
+    const ajv = new Ajv2020({
       allErrors: true,
       strict: false,
       // `schemaVersion: 1` in every artifact is our own versioning axis, on top of JSON Schema.

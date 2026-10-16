@@ -10,6 +10,10 @@
     "$schema": { "type": "string" },
     "schemaVersion": { "type": "integer", "const": 1 },
     "duration": { "type": "number", "exclusiveMinimum": 0 },
+    "note": {
+      "type": "string",
+      "description": "Incidental prose about this file. Permitted so a generated artifact can say it is generated without inventing a key the schema rejects."
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
@@ -132,6 +136,18 @@
                 "role": { "type": "string", "enum": ["title", "name", "caption", "credit", "ui", "onomatopoeia"] },
                 "at": { "type": "string" }
               }
+            }
+          },
+          "resolved": {
+            "type": "object",
+            "description": "Written by `cvpw storyboard`: the expression resolved against the timebase. Kept beside `at` rather than replacing it, because a resolved number alone loses the reason the cut is there and an expression alone cannot be checked without the timebase.",
+            "additionalProperties": false,
+            "required": ["t0", "t1"],
+            "properties": {
+              "t0": { "type": "number", "minimum": 0, "description": "Resolved start in canonical seconds." },
+              "t1": { "type": "number", "exclusiveMinimum": 0, "description": "Resolved end in canonical seconds, exclusive." },
+              "frameFrom": { "type": "integer", "minimum": 0 },
+              "frameTo": { "type": "integer", "minimum": 0 }
             }
           },
           "extensions": { "type": "object" }

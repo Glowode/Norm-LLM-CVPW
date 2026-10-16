@@ -66,7 +66,12 @@ export type CueSource = "measured" | "analysis" | "audit" | "initial" | "manual"
 export interface Cue {
   id: string;
   t: number;
-  source: CueSource;
+  /**
+   * How the time was obtained. Optional in the type and required by the `cues.provenance` gate: the engine
+   * should not refuse to draw a film because a cue file is incomplete, and the validator is the right place
+   * to insist. Optional-here / required-there is deliberate, not an oversight.
+   */
+  source?: CueSource;
   label?: string;
   note?: string;
 }
