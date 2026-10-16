@@ -25,6 +25,8 @@ Read this before concluding that something is missing by accident. Some of it is
 | Reference reconnaissance | six projects under `reference/` | four subagent reports; their findings drove the contract design |
 | Skill bundles | `skills/cvpw`, `skills/cvpw-timing`, `skills/cvpw-qa` | all 13 files written |
 | Build and typecheck | five packages | `pnpm build` green; `tsc --noEmit` green for kernel, audit, runtime, render and cli |
+| Frame ordering invariant | `packages/render/src/sink.ts` | **25 sink tests pass**; three real bugs found and fixed (see "Not done" §2) |
+| Renderer core assumption | `scripts/determinism-*.mjs` | **measured**, not assumed — [ADR 0007](./adr/0007-warmup-frames-and-first-frame-instability.md) |
 
 ### The vertical slice, as far as it runs
 
@@ -81,30 +83,43 @@ half of the slice is exercised directly through `python -m cvpw_py`, which is a 
 `main()` precisely so that this is possible. `packages/cli/src/{shared,args,validate,doctor,browser}.ts`
 are complete; what is missing is the command wiring, which is mechanical.
 
-**Why it is not done:** the render half (`@cvpw/render`) is the real blocker — `cvpw stills`,
-`cvpw render` and `cvpw check --gold` all need a frame sink that does not exist. Writing the remaining
-command wiring before the renderer would produce commands that cannot be tested.
+**Why it is not done:** the remaining commands need `templates/project/` to exist before `new` and
+`render` can be exercised end to end. `validate`, `analyze`, `lint` and `check` are not blocked by
+anything and are mechanical wiring over implementations that already work.
 
-### 2. `packages/{render,runtime}/` declare their contracts and nothing else
+### 2. `@cvpw/render` is implemented except the CLI wiring; `@cvpw/runtime` is still contract-only
 
-Both packages exist, typecheck, and export the interfaces the architecture specifies — `FrameSink`,
-`RenderRequest`, `RenderOutcome`, `EncoderProbe`, `LoadedProject`, `LoadedProblem` — with **no
-behaviour**. They are real packages rather than empty directories for two reasons: `@cvpw/cli` depends on
-them, so the workspace dependency graph has to be honest for `pnpm install` to work at all; and an
-interface that is written down is reviewable.
+`@cvpw/render` now has real implementations — `cdp.ts`, `server.ts`, `sink.ts`, `ffmpeg.ts`,
+`render.ts`, `exec.ts` — with **25 tests** covering the sink's ordering invariant, its refusals, its
+back-pressure and its chunk planner. What is missing is the `cvpw render` / `cvpw stills` command wiring.
 
-That second reason is not decoration. The most consequential decision in the render backend is the frame
-**ordering invariant** — frames may be rendered concurrently by any number of workers, in any order, and
-MUST be written to the encoder strictly in ascending index with a bounded look-ahead, so that the output
-does not depend on the worker count. That is a correctness property, not an implementation detail,
-because `--workers` changing the film would destroy the gold-frame gate, which is the only empirical
-check on determinism. It is now stated in the `FrameSink` doc comment where a reviewer will see it,
-instead of being buried in a worker loop that does not exist yet.
+`@cvpw/runtime` still exports its interfaces with no behaviour. Nothing depends on it yet except the
+`validate` and `storyboard` commands that are not written.
+
+**Three real bugs were found by testing this, and each is worth recording because all three looked right:**
+
+1. **The sink's default extension was `"jpg"`.** `pathFor()` therefore reported a path that did not exist
+   for any non-JPEG capture. The extension is now derived from the first frame's encoding when the caller
+   does not name one — deciding it at construction cannot know what the frames will be.
+2. **Back-pressure deadlocked.** The first version waited for "the next commit", which is a different
+   event from the one that makes room: if the frame at `next` is never produced, no commit happens and the
+   producer blocks forever holding a frame it already rendered. The second version waited on `next`
+   advancing and was *worse*: every blocked writer wakes on the same advance, re-checks a buffer size that
+   has not shrunk, and `write(3)` into a sink with `lookahead: 3` never returned at all. The correct
+   condition is about the frame in hand — accept it when it is within `lookahead` of `next`, otherwise
+   wait until `next` reaches a value the producer computes up front, which cannot deadlock.
+3. **A blocked writer was not released on abort**, so a failed render could hang a worker forever waiting
+   for a frame that would never arrive.
+
+All three were caught by the sink tests rather than by a render, which is the point of testing the
+ordering invariant directly: it is a correctness property, and the failure it prevents — a film with one
+frame in the wrong place — is invisible without it.
 
 ### 3. `templates/project/` and `examples/minimal/` are empty
 
 The scaffold and the committed slice are specified and not built. Until they exist, `cvpw new` has
-nothing to copy and there is no runnable end-to-end example in the repository.
+nothing to copy, and there is no runnable end-to-end example in the repository. **This is now the main
+blocker for everything else.**
 
 ### 4. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
 
@@ -198,17 +213,17 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`packages/cli/src/main.ts`** and the command modules — `doctor`, `env`, `validate` and `analyze`
-   first, because they are fully specified and their dependencies all exist. Then `new` (needs
-   `templates/project`), then the render path.
-2. **`templates/project/`** — the scaffold. It must run end to end, so it needs a minimal engine, a
-   manifest-listed scene set and one style.
-3. **`packages/render/`** — the CDP worker, the ordered frame sink and the ffmpeg driver with
-   encoder probing. The ordering invariant (concurrent render, strictly ascending writes with a bounded
-   look-ahead) is what makes `--workers` output-neutral and it MUST be asserted by a test.
-4. **The three missing skill references.**
-5. Then the vertical slice end to end, and `gold.json`.
+1. **`templates/project/`** — the scaffold, and now the main blocker. It must run end to end, so it needs
+   a minimal Canvas2D engine, a manifest-listed scene set and one style. Everything else is waiting on it.
+2. **The remaining CLI commands**, over implementations that already exist: `validate` (the AJV registry
+   is in `packages/cli/src/validate.ts`), `analyze` (defers to `python -m cvpw_py`), `lint` (defers to
+   `@cvpw/audit`), `stills` and `render` (defer to `@cvpw/render`, now implemented), then `check` and
+   `handoff`.
+3. **`@cvpw/runtime`** — the DOM-free loader, needed by `storyboard` and by cross-artifact validation.
+4. Then the vertical slice end to end, `examples/minimal/`, and `gold.json` with its first baseline.
 
-The single highest-risk assumption still unproven is that **`window.cvpw.renderFrame(t)` in headless Edge
-produces byte-identical frames across two runs and across worker counts**. Everything in the architecture
-follows from it and nothing yet tests it.
+**The renderer's core assumption is no longer an assumption** — ADR 0007 measured it, and the sink's
+ordering invariant has 25 tests behind it. What remains unproven is narrower and cheaper to settle: that
+the whole chain produces an MP4, and that `window.cvpw.renderFrame(t)` driven through the *kernel engine*
+(rather than a spike page) behaves the same way. The spikes used a page written for the purpose; the
+engine has never been asked to draw anything.
