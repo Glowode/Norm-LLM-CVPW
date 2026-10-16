@@ -17,6 +17,15 @@
         "startedAt": { "type": "string" },
         "durationSec": { "type": "number", "minimum": 0 },
         "workers": { "type": "integer", "minimum": 1 },
+        "verified": {
+          "type": "object",
+          "description": "What ffprobe reports the FILE contains, as opposed to `frames`, which is what the frame sink wrote. The two disagreeing is the failure `render.frameCount` exists to catch, so both are recorded rather than one being trusted.",
+          "additionalProperties": false,
+          "properties": {
+            "frames": { "type": ["integer", "null"], "minimum": 0 },
+            "durationSec": { "type": ["number", "null"], "minimum": 0 }
+          }
+        },
         "transport": { "type": "string", "enum": ["filesystem", "stream"] },
         "host": { "type": "string" },
         "cvpwVersion": { "type": "string" }

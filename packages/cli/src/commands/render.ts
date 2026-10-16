@@ -326,6 +326,9 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
           workers: context.workers,
           transport: "filesystem",
           cvpwVersion: "0.1.0",
+          // Verified by ffprobe. `frames` above is what the sink wrote; this is what the FILE contains, and
+          // the two disagreeing is exactly the failure the `render.frameCount` gate exists to catch.
+          verified: { frames: probed.frames, durationSec: probed.duration },
         },
         name,
         output: relative(options.root, output).replace(/\\/g, "/"),
@@ -346,7 +349,6 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
         warnings: outcome.warnings,
         errors: outcome.errors,
         sha256: sha256(fileBytes),
-        probe: probed,
       },
       null,
       2,

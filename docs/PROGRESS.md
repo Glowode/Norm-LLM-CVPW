@@ -53,7 +53,7 @@ render architecture rests on, and it is now a measured fact rather than a claim.
 
 ## Not done — and why
 
-### 1. The CLI runs, but only three of its twenty commands are implemented
+### 1. The CLI runs, but only a third of its commands are implemented
 
 `cvpw doctor`, `cvpw env` and `cvpw renderer` are implemented and work on this machine. The other
 seventeen are **registered with their full flag surface and their help text**, and exit with code 3 and
@@ -242,9 +242,42 @@ What broke it open was printing the scene's own arithmetic *into the frame as te
 in all three sessions — at which point the arithmetic could not be the cause, and the only thing left was the
 instrument. When a measurement says something surprising, suspect the measurement before rewriting the code
 it accuses.
-### 6. `@cvpw/runtime` is still contract-only
+### 6. The determinism guarantee is now a regression test, not a claim
 
-### 7. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
+`cvpw gold` takes a baseline at `qa/gold.json`; `cvpw check --only determinism.gold` compares the current
+render against it. Both are verified in **all three** directions, which is the only way to trust a gate:
+
+| Run | Result |
+|---|---|
+| No baseline yet | **exit 0, SKIP** with the command that creates one. A gate that fails until a baseline exists is a gate people disable on day one. |
+| Baseline taken, nothing changed | **exit 0**, 13 frames compared, 0 differing |
+| The `hold` scene given a visible magenta rectangle | **exit 1**, `frame 200 expected 0ab9fa93… observed a1cb2056…` — and exactly the three frames in that shot, no others |
+
+Three design decisions in it are deliberate:
+
+- **Frames are captured the way a render captures them** — render, `flush`, encoded screenshot — rather than
+  by reading canvas pixels. The witness has to be the artefact that ships, and this is why the gate would
+  have caught the queued-canvas bug: a pixel read does not go through the same path.
+- **A run walks from the film's start**, even when it only compares late frames. A frame's pixels depend on
+  how much work was queued before it, so a gate that jumped straight to frame 200 would witness a frame
+  nobody ships. This makes the gate slow, and that is the correct trade.
+- **The verdict is on a 6-bit-quantised hash**, with the byte-exact hash of the captured frame recorded
+  alongside. Quantising keeps GPU float noise from failing the gate while a scene that changes colour still
+  does; recording both means a report can always say which view disagreed.
+
+Writing it also found and fixed a second, unrelated contract break: `render/report.json` was writing a
+`probe` key that `schemas/render-report.schema.json` rejects, so **every render produced an artifact that
+failed `cvpw validate`** — including the renders whose hashes this session's conclusions rest on. The
+ffprobe result now lives in `run.verified`, inside the schema, and the distinction it records is the useful
+one: `frames` is what the sink wrote, `run.verified.frames` is what the file contains, and those two
+disagreeing is precisely the failure `render.frameCount` exists to catch.
+
+`docs/PROGRESS.md`'s "not started" list is down to `@cvpw/runtime` and the phase-2 features. The framework
+now scaffolds a project, validates it, storyboards it, checks it, renders it reproducibly, and can prove the
+render has not changed.
+### 7. `@cvpw/runtime` is still contract-only
+
+### 8. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
 
 `packages/kernel/src/engine.ts` typechecks and its contract is specified, but no test renders through it.
 **The engine half of the vertical slice is unproven.**
@@ -284,7 +317,7 @@ Also verified about the render path: the browser is discoverable, its WebGL rend
 client and the static server that `@cvpw/render` exports are implemented and exercised by these spikes;
 what remains unimplemented is the frame sink, the worker loop and the ffmpeg driver.
 
-### 8. Not started, as planned for phase 2
+### 9. Not started, as planned for phase 2
 
 Asset generation and chroma-key; lyric forced alignment (only the LRC path and the timing-table design
 exist); the WebGL2 post chain; the Blender bridge; the style registry's first real styles; the streaming

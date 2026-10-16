@@ -29,6 +29,7 @@ import {
   findProjectRoot,
   frameworkRoot,
   log,
+  relPath,
   resolveTool,
   type Envelope,
 } from "./shared.js";
@@ -550,6 +551,84 @@ register({
       log.info("");
     }
     return envelope;
+  },
+});
+
+// --- gold ----------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "gold",
+    summary: "Take or refresh the determinism baseline at qa/gold.json.",
+    usage: "cvpw gold --reason <text> [--sample <n>] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "reason", type: "value", value: "<text>", doc: "Why this baseline is being (re)taken. Required." },
+          { name: "sample", type: "value", value: "<n>", doc: "How many frames to witness.", default: "24" },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw gold --reason \"first baseline\"", "cvpw gold --reason \"after the palette fix\" --sample 48"],
+    notes: [
+      "A baseline with no stated reason is indistinguishable from an accident, so --reason is required.",
+      "Frames are captured the way a render captures them, walking from the film's start: a frame's pixels",
+      "depend on how much work was queued before it, so a witness that jumped straight to frame 200 would",
+      "describe a frame nobody ships.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const reason = typeof args.flags.get("reason") === "string" ? String(args.flags.get("reason")) : undefined;
+    if (!reason) {
+      throw new UsageError(
+        "cvpw gold needs --reason",
+        "a baseline whose provenance is unknown is indistinguishable from an accident",
+      );
+    }
+    const sample = getString(args, "sample") !== undefined ? getNumber(args, "sample") : 24;
+    const { takeGold } = await import("./commands/gold.js");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+
+    log.info("");
+    const result = await takeGold({
+      root,
+      reason,
+      sample,
+      ...(args.json ? {} : { onProgress: (frame: number, total: number) => {
+        if (frame % 12 === 0 || frame === total) log.info(`  frame ${frame}/${total}`);
+      } }),
+    });
+    await mkdir(dirname(result.path), { recursive: true });
+    await writeFile(result.path, `${JSON.stringify(result.document, null, 2)}\n`, "utf8");
+
+    const summary = [
+      `wrote ${relPath(root, result.path)}`,
+      `  ${Object.keys(result.document.frames).length} frame witnesses at ${result.document.width}x${result.document.height}@${result.document.fps}`,
+      `  renderer ${result.document.renderer}`,
+      `  reason: ${reason}`,
+      "  compare against it with `cvpw check --only determinism`",
+    ];
+    if (!args.json) {
+      log.info("");
+      for (const line of summary) log.info(line);
+      log.info("");
+    }
+    return {
+      ok: true,
+      command: "gold",
+      schemaVersion: 1,
+      project: root,
+      artifactsWritten: [result.path],
+      result: result.document,
+      warnings: [],
+      errors: [],
+      summary,
+    };
   },
 });
 

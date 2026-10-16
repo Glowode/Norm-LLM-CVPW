@@ -31,7 +31,13 @@ import { ContractError, projectPaths, readJson, relPath, type Envelope } from ".
 import { buildStoryboard } from "./storyboard.js";
 
 /** The checks this command implements. Every id here also appears in `docs/QA.md`. */
-export const IMPLEMENTED_CHECKS = ["render.frameContent", "scenes.registry", "timeline.time", "text.whitelist"] as const;
+export const IMPLEMENTED_CHECKS = [
+  "render.frameContent",
+  "determinism.gold",
+  "scenes.registry",
+  "timeline.time",
+  "text.whitelist",
+] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
 export interface CheckContext {
@@ -333,6 +339,31 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (should("determinism.gold")) {
+    // Imported lazily: the gold check opens its own browser session and walks the whole film, so a caller
+    // running only `--only render.frameContent` should not pay for it.
+    const { checkDeterminism } = await import("./gold.js");
+    const result = await checkDeterminism(context.root);
+    outcomes.push({
+      id: "determinism.gold",
+      title: "every witnessed frame still hashes to its baseline",
+      ok: result.ok,
+      measured: {
+        compared: result.compared,
+        differing: result.differing.length,
+        renderer: result.renderer,
+        ...(result.goldRenderer && result.goldRenderer !== result.renderer
+          ? { "gold renderer": result.goldRenderer }
+          : {}),
+      },
+      offenders: result.differing.slice(0, 12).map((diff) => ({
+        code: "frame.changed",
+        where: `frame ${diff.frame}`,
+        detail: `expected ${diff.expected}, observed ${diff.observed}`,
+      })),
+      ...(result.skipped ? { skipped: result.skipped } : {}),
+    });
   }
 
   const errors = outcomes.reduce((sum, outcome) => sum + (outcome.ok ? 0 : outcome.offenders.length), 0);
