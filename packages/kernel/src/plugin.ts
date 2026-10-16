@@ -179,6 +179,25 @@ export interface SceneFrame {
   layout: import("./layout.js").Layout;
   /** The style this shot resolved, already merged (style defaults + shot overrides). */
   style: SceneStyle;
+  /**
+   * A colour from the style's palette **by role**, e.g. `f.color("amber")`.
+   *
+   * This exists because the alternative — indexing `f.style.palette.colors` positionally — is a silent
+   * failure that cost a full session to find. A palette is ordered, and the conventional order is dark to
+   * light, so `colors[0]` is the *background*. Three scenes in `templates/project` read `colors[0]` for
+   * their accent and therefore drew their subject in the exact colour behind it: the frames contained a
+   * vignette and nothing else, no error was thrown, `engine.problems` stayed empty, and every gate passed.
+   *
+   * **This method throws when the role is unknown**, and that asymmetry is the point. A missing role is a
+   * style that has not been finished, and the failure to catch is not "the colour was slightly off" but
+   * "the subject was invisible and everyone believed the render". There is deliberately no fallback
+   * parameter: a caller that wants a default can write `f.style.palette.roles.amber ?? "#ff00ff"` and own
+   * that decision explicitly, in the one place it is being made.
+   *
+   * The positional array remains available on `texture.js`'s ramps, where a gradient genuinely wants an
+   * ordered light-to-dark sequence and the order is the argument.
+   */
+  color(role: string): string;
   /** The seeded generators are NOT passed in: import them from `rng.js` so keys stay explicit. */
 }
 

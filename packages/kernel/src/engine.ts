@@ -533,13 +533,28 @@ export class Engine {
     for (const shot of active) {
       const definition = scenes.get(shot.scene);
       if (!definition) continue;
+      const shotStyle = styles.require(shot.style);
       const sceneFrame: SceneFrame = {
         t,
         lt: t - shot.t0,
         frame,
         fps: this.timebase.fps,
         layout: this.layout,
-        style: styles.require(shot.style),
+        style: shotStyle,
+        // Throws on an unknown role rather than returning a fallback. See the note on `SceneFrame.color`:
+        // the failure this prevents is a scene drawing its subject in the background colour, which reports
+        // nothing and survives every gate.
+        color(role: string): string {
+          const value = shotStyle.palette.roles[role];
+          if (typeof value !== "string" || value.length === 0) {
+            throw new Error(
+              `style ${JSON.stringify(shotStyle.name)} has no colour role ${JSON.stringify(role)}; ` +
+                `it defines ${Object.keys(shotStyle.palette.roles).join(", ") || "(none)"}. ` +
+                `Add the role to the style rather than falling back to a guess.`,
+            );
+          }
+          return value;
+        },
       };
       const cx = this.makeDrawContext(t, shot, g);
       try {
@@ -823,6 +838,15 @@ export class Engine {
       fps: this.timebase.fps,
       layout: this.layout,
       style: this.styleDef,
+      color: (role: string): string => {
+        const value = this.styleDef.palette.roles[role];
+        if (typeof value !== "string" || value.length === 0) {
+          throw new Error(
+            `style ${JSON.stringify(this.styleDef.name)} has no colour role ${JSON.stringify(role)}`,
+          );
+        }
+        return value;
+      },
     };
     const probeShot: ResolvedShot = {
       id: "__probe__",

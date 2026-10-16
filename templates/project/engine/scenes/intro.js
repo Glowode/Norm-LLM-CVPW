@@ -10,7 +10,7 @@
  */
 
 import { scene, TAU } from "../../vendor/kernel/dist/index.js";
-import { colour, decayHit, envelope, hash1, progress, rgba, role } from "../lib/draw.js";
+import { decayHit, envelope, hash1, progress, rgba } from "../lib/draw.js";
 
 export default scene({
   name: "open",
@@ -24,9 +24,16 @@ export default scene({
 
   draw({ g, f, args, cx }) {
     const { width: W, height: H } = f.layout.space;
-    const ink = role(f.style, "ink", "#140b1e");
-    const amber = f.style.palette.colors[0] ?? "#ffa552";
-    const accent = f.style.palette.colors[f.style.palette.colors.length - 1] ?? amber;
+    // Colours come from ROLES via `f.color()`, never from a palette index.
+    //
+    // This file previously read `f.style.palette.colors[0]` for its accent. In a palette ordered dark to
+    // light — which is the conventional order, and the order `styles/minimal-paper.js` uses — index 0 is
+    // the BACKGROUND. So the scene drew its core in exactly the colour behind it. The frames contained a
+    // vignette and nothing else, nothing threw, `engine.problems` stayed empty, and every gate passed.
+    // `docs/PROGRESS.md` has the bisection; `SceneFrame.color` exists so this cannot recur.
+    const ink = f.color("ink");
+    const amber = f.color("amber");
+    const accent = f.color("ember");
     const tint = args.hue > 0.5 ? accent : amber;
 
     // --- background ----------------------------------------------------------------------------
@@ -115,7 +122,7 @@ export default scene({
     const label = String(args.label ?? "01");
     g.save();
     g.font = `500 ${f.layout.type(22)}px ui-monospace, monospace`;
-    g.fillStyle = rgba(colour(f.style, 0), 0.5);
+    g.fillStyle = rgba(amber, 0.5);
     g.textAlign = "left";
     g.textBaseline = "top";
     g.fillText(label, f.layout.space.safe, f.layout.space.safe);

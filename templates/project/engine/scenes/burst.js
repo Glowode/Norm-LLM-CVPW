@@ -15,7 +15,7 @@
  */
 
 import { scene, TAU } from "../../vendor/kernel/dist/index.js";
-import { clamp01, colour, decayHit, hash1, hashRange, rgba, ringPoint, role } from "../lib/draw.js";
+import { clamp01, decayHit, hash1, hashRange, rgba, ringPoint } from "../lib/draw.js";
 
 export default scene({
   name: "burst",
@@ -36,9 +36,9 @@ export default scene({
 
   draw({ g, f, args, cx }) {
     const { width: W, height: H } = f.layout.space;
-    const ink = role(f.style, "ink", "#140b1e");
-    const amber = f.style.palette.colors[0] ?? "#ffa552";
-    const accent = f.style.palette.colors[f.style.palette.colors.length - 1] ?? amber;
+    const ink = f.color("ink");
+    const amber = f.color("amber");
+    const accent = f.color("ember");
     const tint = args.hue > 0.5 ? accent : amber;
 
     g.fillStyle = ink;
@@ -113,9 +113,9 @@ export default scene({
     // `cx.layer()` composed nothing here either, silently.
     const corePulse = 1 + decayHit(f.lt, 0.2) * 0.35;
     g.save();
-    g.shadowColor = rgba(colour(f.style, 0), 0.8);
+    g.shadowColor = rgba(amber, 0.8);
     g.shadowBlur = f.layout.type(30);
-    g.fillStyle = rgba(colour(f.style, 0), 0.92);
+    g.fillStyle = rgba(amber, 0.92);
     g.beginPath();
     g.arc(centreX, centreY, f.layout.type(17) * corePulse, 0, TAU);
     g.fill();
@@ -126,7 +126,7 @@ export default scene({
     const word = String(args.word ?? "CHORUS");
     g.save();
     g.font = `600 ${f.layout.type(30)}px ui-sans-serif, system-ui, sans-serif`;
-    g.fillStyle = rgba(colour(f.style, 2), clamp01(0.35 + flash));
+    g.fillStyle = rgba(accent, clamp01(0.35 + flash));
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.letterSpacing = `${f.layout.type(6)}px`;

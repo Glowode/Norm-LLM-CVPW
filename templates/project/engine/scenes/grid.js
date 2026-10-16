@@ -12,7 +12,7 @@
  */
 
 import { scene } from "../../vendor/kernel/dist/index.js";
-import { clamp01, colour, decayHit, hash1, progress, rgba, role } from "../lib/draw.js";
+import { clamp01, decayHit, hash1, progress, rgba } from "../lib/draw.js";
 
 export default scene({
   name: "grid",
@@ -26,9 +26,9 @@ export default scene({
 
   draw({ g, f, args }) {
     const { width: W, height: H } = f.layout.space;
-    const ink = role(f.style, "ink", "#140b1e");
-    const amber = f.style.palette.colors[0] ?? "#ffa552";
-    const accent = f.style.palette.colors[f.style.palette.colors.length - 1] ?? amber;
+    const ink = f.color("ink");
+    const amber = f.color("amber");
+    const accent = f.color("ember");
     const tint = args.hue > 0.5 ? accent : amber;
 
     g.fillStyle = ink;
@@ -121,7 +121,7 @@ export default scene({
     // compete with it. Text stays inside the safe inset and above the subtitle band.
     g.save();
     g.font = `500 ${f.layout.type(20)}px ui-monospace, monospace`;
-    g.fillStyle = rgba(colour(f.style, 1), 0.45 + 0.25 * beat);
+    g.fillStyle = rgba(f.color("slate"), 0.45 + 0.25 * beat);
     g.textAlign = "left";
     g.textBaseline = "bottom";
     const metrics = `${cols}\u00d7${rows}`;

@@ -15,7 +15,7 @@
  */
 
 import { scene } from "../../vendor/kernel/dist/index.js";
-import { clamp01, colour, decayHit, rgba, role } from "../lib/draw.js";
+import { clamp01, decayHit, rgba } from "../lib/draw.js";
 import { paperFill, linearRamp } from "../lib/texture.js";
 
 export default scene({
@@ -36,10 +36,10 @@ export default scene({
 
   draw({ g, f, args }) {
     const { width: W, height: H } = f.layout.space;
-    const ink = role(f.style, "ink", "#140b1e");
-    const paper = role(f.style, "paper", "#f3ead8");
-    const amber = f.style.palette.colors[0] ?? "#ffa552";
-    const accent = f.style.palette.colors[f.style.palette.colors.length - 1] ?? amber;
+    const ink = f.color("ink");
+    const paper = f.color("paper");
+    const amber = f.color("amber");
+    const accent = f.color("ember");
 
     // --- the field --------------------------------------------------------------------------------
     // A vertical ramp between two dark tones, then grain. The ramp alone would band on a large area; the
@@ -47,7 +47,7 @@ export default scene({
     g.fillStyle = linearRamp(
       g,
       { x: 0, y: 0, w: W, h: H },
-      [ink, colour(f.style, 0), ink],
+      [ink, f.color("slate"), ink],
       [0, 0.5, 1],
       "down",
     );
@@ -121,7 +121,7 @@ export default scene({
       g.textAlign = "center";
       g.textBaseline = "alphabetic";
       g.font = `400 ${f.layout.type(28)}px ui-sans-serif, system-ui, sans-serif`;
-      g.fillStyle = rgba(colour(f.style, 4), 0.7 * ruleProgress);
+      g.fillStyle = rgba(paper, 0.7 * ruleProgress);
       g.letterSpacing = `${f.layout.type(4)}px`;
       const subWidth = g.measureText(args.sub).width;
       if (subWidth <= maxWidth) g.fillText(args.sub, centreX, titleY + f.layout.type(78));
@@ -136,7 +136,7 @@ export default scene({
       g.textAlign = "center";
       g.textBaseline = "alphabetic";
       g.font = `400 ${f.layout.type(20)}px ui-sans-serif, system-ui, sans-serif`;
-      g.fillStyle = rgba(colour(f.style, 3), 0.5 * ruleProgress);
+      g.fillStyle = rgba(f.color("muted"), 0.5 * ruleProgress);
       g.fillText(String(args.credit), centreX, f.layout.space.subtitleBand - f.layout.type(24));
       g.restore();
     }

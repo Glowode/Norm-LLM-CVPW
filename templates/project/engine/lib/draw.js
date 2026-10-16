@@ -12,15 +12,26 @@
 
 import { clamp01, easing, hash1, hashRange, mixHex, rgba } from "../../vendor/kernel/dist/index.js";
 
-/** A palette role, with a fallback so a style that omits a role still renders rather than throwing. */
+/**
+ * Resolve a style's colour **by role**.
+ *
+ * Kept as a module-level helper only for code that runs *outside* a scene's `draw()` — a manifest, a
+ * preload hook — where there is no `SceneFrame` to ask. Inside a scene, use `f.color(role)` instead: it is
+ * the same lookup and it throws on an unknown role.
+ *
+ * There used to be a `colour(style, index)` helper here that indexed `palette.colors` positionally. It has
+ * been **deleted rather than deprecated**, because it was the direct cause of the worst bug in this
+ * template: `colors[0]` is the ink in a dark-to-light palette, three scenes read it for their "accent", and
+ * they drew their subject in the exact colour behind it — no error, no gate failure, and a film that opened
+ * on several seconds of near-black. A helper whose misuse is invisible does not belong in a template that
+ * other people copy. `docs/PROGRESS.md` has the bisection.
+ */
 export function role(style, name, fallback) {
-  return style.palette.roles[name] ?? fallback;
-}
-
-/** A palette colour by index, wrapping, so a scene never indexes past the end. */
-export function colour(style, index) {
-  const colors = style.palette.colors;
-  return colors[((index % colors.length) + colors.length) % colors.length];
+  const value = style?.palette?.roles?.[name];
+  if (typeof value === "string" && value.length > 0) return value;
+  if (fallback !== undefined) return fallback;
+  // Magenta, not the background. An unanswerable role must look wrong, not invisible.
+  return "#ff00ff";
 }
 
 /**

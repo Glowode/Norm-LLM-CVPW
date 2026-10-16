@@ -115,41 +115,46 @@ All three were caught by the sink tests rather than by a render, which is the po
 ordering invariant directly: it is a correctness property, and the failure it prevents — a film with one
 frame in the wrong place — is invisible without it.
 
-### 3. `templates/project/` exists and runs, but its `open` scene renders nearly blank
+### 3. The blank-frame bug is FOUND AND FIXED — and it was a template bug, not a framework one
 
-**The pipeline works end to end.** `cvpw new` scaffolds a self-contained project with the kernel vendored
-into `vendor/kernel`; `cvpw storyboard` resolves every time expression and writes `timeline.json` plus
-`docs/STORYBOARD.md`; `cvpw validate` passes all 9 cross-artifact checks; `cvpw stills` drives headless Edge
-through CDP and writes 1920×1080 PNGs with a manifest. Two shots render correctly: `burst` produces its
-particle field, its held core and its "CHORUS" caption, and `grid` produces its lit grid.
+All four template scenes now render. The bisection described in the previous revision of this file took
+about ten minutes once it was set up as a measurement instead of a guess, and the answer was in the frame:
 
-**But `open` and `hold` render almost nothing.** The measurement, taken by reading pixels back from the
-canvas at t=0 and t=0.5:
+```
+band5  cx0=960 cy0=540 tint=#140b1e cr=40.8
+```
 
-| Reading | Value | Expected |
-|---|---|---|
-| Brightest pixel in the whole 1920×1080 frame | 62 of 765 | ~340 for the declared amber core at 85 % |
-| Largest deviation from the corner pixel | 4 of 765 | a visible core and up to 19 rings |
-| `engine.problems` after the render | `[]` | `[]` — correct, nothing threw |
+**`#140b1e` is the palette's `ink` — the background colour.** The scenes read their accent from
+`f.style.palette.colors[0]`, and `styles/minimal-paper.js` orders its palette dark-to-light, exactly as its
+own comment says. So index 0 was the background, and `open`, `grid` and `burst` drew their subject in the
+precise colour behind it.
 
-So the shot draws its background and its vignette and then stops, **and reports nothing wrong**. That
-combination is the worst kind: `cvpw check` would pass, the render would complete, and the film would open
-with several seconds of near-black.
+That explains every symptom at once, and explains why it was so hard to see:
 
-**What it is not.** `cx.layer()` was the first suspect, because both failing scenes used it for their core
-and both working paths did not. It was replaced with a direct draw using `shadowBlur` — the same output,
-byte for byte, to within the PNG encoder's noise. So `cx.layer()` is *not* the cause, and a comment in
-`intro.js` claiming otherwise has been left in place with a correction rather than quietly deleted, because
-the wrong explanation is more useful than no explanation when the next agent hits this.
+| Symptom | Explanation |
+|---|---|
+| Frames contained only a vignette | The core was drawn, in the background colour |
+| `engine.problems` was empty | Nothing threw — the code was doing exactly what it was told |
+| `burst` "worked" | Its particles are 3–10 px squares at varying alpha, so the *shadow* edge was faintly visible; its "CHORUS" text came from `colour(f.style, 2)`, a real mid-tone |
+| The first suspect, `cx.layer()`, was innocent | Replacing it changed nothing, because it was never the problem |
 
-**What is still unknown.** The scene's arithmetic uses `f.layout.type()` for every dimension, `f.lt` for
-local time, and `envelope`/`decayHit` for its animation. All three exist and are used by `burst`, which
-works. The next step is to bisect by drawing the core at a hard-coded radius with no envelope and no
-`layout.type()`, then add each piece back. That is a fifteen-minute job and it is the first thing to do.
+**What was genuinely wrong was the API's shape, not the arithmetic.** Indexing a palette positionally is a
+silent failure waiting to happen: reorder the palette and every scene changes meaning, with no error. So the
+fix is structural rather than local:
 
-**Not yet attempted:** `cvpw render` has never produced an MP4. The stills path is the same capture code, so
-the frame sink and encoder remain unexercised except by unit tests. `analysis/` has never been produced for
-a scaffolded project, so every time expression in the template is a cue rather than a bar.
+- `SceneFrame.color(role)` is new, and it **throws** on an unknown role. There is deliberately no fallback
+  parameter — a caller that wants a default can write one and own that decision in the one place it is made.
+- All 17 colour lookups across the four scenes go through it.
+- `lib/draw.js`'s `colour(style, index)` helper has been **deleted, not deprecated**. A helper whose misuse
+  is invisible does not belong in a template other people copy.
+- The four scenes' own comments record the failure, because the next person to write a scene needs to know
+  why the obvious-looking expression is banned.
+
+The lesson worth keeping: this survived `cvpw validate`, `cvpw lint`, a typecheck, and a render that wrote
+four plausible PNGs. Nothing in the pipeline could see it, because every gate asked whether the film was
+*valid* and none asked whether it was *visible*. `cvpw check --scenes`'s "no empty frames" rule is the gate
+that would have caught it, and it is not implemented yet — which is now the strongest argument for writing
+it next.
 
 ### 4. `@cvpw/runtime` is still contract-only
 
@@ -245,11 +250,10 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **Bisect the `open` scene until it draws.** Hard-code a circle at the centre of the frame with no
-   envelope, no `layout.type()` and no `rgba()`; confirm it in a pixel read; then add each piece back:
-   `layout.type()`, then the `decayHit` envelope, then `rgba()`, then the rings. Somewhere in that sequence
-   the frame goes blank, and that is the bug. Everything else in this list is cheaper once the reference
-   template actually draws something.
+1. **`cvpw check --scenes`** — the gate that would have caught the blank-frame bug in one run instead of a
+   session. Its rule ("no empty frames") is specified in `docs/QA.md` and unimplemented. It should read
+   back the canvas at a sampled set of times and fail when a frame's content is indistinguishable from its
+   own background. That is exactly the assertion whose absence let a film of near-black pass every check.
 2. **Then `cvpw render` end to end.** The stills path already drives CDP, so the untested part is narrow:
    the frame sink under concurrency, the encoder probe, and the MP4. Unit tests cover the sink's ordering;
    nothing covers the encoder against a real film.
@@ -259,7 +263,6 @@ To continue, in this order:
 4. **`@cvpw/runtime`** — the DOM-free loader, needed by `cvpw check`'s cross-artifact gates.
 5. Then `examples/minimal/`, and `gold.json` with its first baseline.
 
-What is *proven* now, and did not exist before this session: a project scaffolds itself from the template,
-validates, storyboards, and renders 1920×1080 stills through headless Edge — with the kernel vendored so the
-project is self-contained and movable. `burst` and `grid` produce real images. The framework's plumbing
-works; one scene's arithmetic does not, and it is found by bisection rather than by more architecture.
+What is proven now: a project scaffolds itself, validates, storyboards, and renders four visually correct
+1920×1080 shots through headless Edge — amber core and rings, lit grid, particle burst, title card — with
+the kernel vendored so the project is self-contained and movable.
