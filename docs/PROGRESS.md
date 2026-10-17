@@ -107,47 +107,58 @@ measured timebase, resolved cuts, reproducible render, gates, baseline, delivery
 **What it does not close:** `av.sync` still measures only container-level offsets, not wave-
 form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
 right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
-### 3. OPEN DEFECT: `bloom` — and the diagnosis so far was measured with a broken instrument
+### 3. OPEN DEFECT, and it is bigger than `bloom`: the whole post chain may never run
 
-`bloom` is declared in `timeline.schema.json`, used by the template (`post.bloom = 0.35` on `s03_burst`), and
-has no visible effect. But **every "measurement" of it in this session used an instrument that cannot see the
-thing it was measuring**, and that has to be stated before anything else is claimed.
+`bloom` is declared in `timeline.schema.json`, used by the template, and has no effect. Chasing it produced a
+finding that matters much more than bloom itself.
 
-**The instrument was `window.engine.resolved`.** Mutating a post value on that object and re-rendering changes
-nothing:
+**The decisive test.** A marker was placed inside `finish()` — nothing subtle, it washed the frame toward white
+by `post.bloom` with `screen`:
 
-| `resolved[2].post.vignette` set to | corner luminance at frame 130 |
+```ts
+if (post.bloom && post.bloom > 0) {
+  g.globalCompositeOperation = "screen";
+  g.globalAlpha = clamp01(post.bloom);
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, w, h);
+}
+```
+
+A `qa/gold.json` baseline taken before the marker still passed **11/11 witnesses identical**. A white wash at
+alpha 0.35 across 240 frames cannot be invisible.
+
+Checked before concluding anything:
+
+| check | result |
 |---|---|
-| 0.34 (the declared value) | 20.3333 |
-| 0 | 20.3333 |
-| 1 (maximum) | 20.3333 |
+| vendored kernel identical to source | yes, same SHA-256 |
+| marker present in the vendored file | yes |
+| `finish()` called from `renderFrame` | yes, engine.ts:492 |
+| timeline declares `post: { bloom: 0.35 }` | yes, timeline.js:72 |
+| `ShotDeclaration.post` exists | yes, engine.ts:120 |
 
-**Identical.** A vignette at 1.0 versus 0 must change a corner by tens of levels, so `resolved` is an
-*inspection copy* — the object `finish()` reads is not this one. Consequences:
+So every link is present and the effect is not. **The post chain is not being applied**, and a second realisation
+follows from it: nothing in this session ever verified that `finish()` runs. What looked like a vignette in every
+stills review is drawn by the *scenes* — `intro.js` builds its own radial gradient at line 49, and so does
+`hold`. `post.vignette` was never observed working; it was assumed, because a vignette was visible.
 
-- "`bloom: 0.35` reaches the engine, `resolved` shows it" — **not evidence**. It shows it in a copy.
-- "toggling bloom moved luminance by 0.0024 at full strength" — **invalid**. The toggle did nothing; the 0.0024
-  was frame-to-frame noise.
-- The one piece of evidence that still stands is the original one: with the bloom pass in the kernel, a
-  `qa/gold.json` baseline taken beforehand still passed 11/11. That is consistent with "bloom does not run" and
-  inconsistent with "bloom runs and is visible".
+**That is the fourth wrong instrument this session, and the most expensive**, because it invalidated an
+assumption held since the first vertical slice: that the declared grade was being applied.
 
-**Next session, one test decides it.** Do not touch `resolved`. Put a blatant marker in the pass itself — screen
-the frame with pure white at `alpha = post.bloom` — and run `cvpw check --only determinism.gold` against a
-baseline taken before it. If the baseline still passes, `finish()` is not receiving the shot's post at all and
-the defect is upstream of the drawing. If it fails, the message is right and only the blur is wrong.
+**Next session, in order:**
 
-Then choose honestly between the two acceptable outcomes:
+1. Put `throw new Error("finish reached")` as the *first* statement of `finish()`. If `renderFrame` does not
+   throw, the call at engine.ts:492 is inside a branch that is not taken — read the twenty lines above it.
+2. If it does throw, the marker's own conditions are wrong: log `JSON.stringify(post)` there and compare it
+   against what the timeline declares.
+3. Do not implement `bloom` until the chain itself is proven to run. A new feature on top of a chain that does
+   nothing inherits the same invisibility.
+4. If the chain cannot be made to run cheaply, **remove `bloom` (and any other unapplied key) from
+   `timeline.schema.json` and from the template.** A key that cannot work must not be declarable, and validation
+   vouching for it is worse than an unknown key.
 
-1. **Implement it properly** — a threshold plus a multi-radius blur, which is the WebGL2 chain phase 2 reserves.
-2. **Remove `bloom` from `timeline.schema.json` and from the template.** A key that cannot work should not be
-   declarable. This is the honest option if (1) is not affordable, and it is strictly better than the current
-   state where validation vouches for a key that does nothing.
-
-**The general lesson, which cost more than the bloom bug:** an instrument that silently reads a copy produces
-confident, precise, entirely wrong numbers. This session has now produced four of those — a BOM, a stale
-`report.output`, a PowerShell parse error that skipped an edit, and this. The rule they all point at: **verify
-that the thing you are measuring is the thing that runs, before trusting any number about it.**
+**The rule this session keeps re-learning, now with teeth:** verify that the thing being measured is the thing
+that runs. A vignette on screen is not evidence that `post.vignette` works — it may be the scene drawing one.
 ### 4. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
