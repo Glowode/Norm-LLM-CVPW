@@ -89,12 +89,29 @@ existed, so the change is only visible where a project asked for it.
 Declared in the schema, present in the example, mentioned nowhere in code. Two candidates: it is a leftover from a
 design that moved on, or a feature nobody built. Either way it is currently a key that validates and does nothing.
 
-## 4. `project.json::artist` and `::titleSub` are declared, read by nothing
+## 4. PARTLY FIXED: `project.json::artist` and `::titleSub`
 
-Both are `"type": "string"`, both empty in the example, both read by nothing. A title and a subtitle are the two
-strings a film most obviously needs on screen, and nothing draws them. `credit` — the adjacent key — *is* gated
-(`deliver.credit`), so the omission is visible by contrast: the framework checks that a credit appears and never
-checks that a title does.
+**Wired through four layers, and it still does not reach the canvas.**
+
+| layer | change |
+|---|---|
+| `SceneFrame` | gained `title` and `titleSub`; a scene had no way to reach a project string before |
+| `EngineOptions` | carries both; the synthetic frame literal updated |
+| `engine/main.js` | passes `project.artist` / `project.titleSub` |
+| `outro.js` | uses them as DEFAULTS when the shot leaves `title` at its `"TITLE"` default |
+| `deliver.credit` | now fails if a declared title is not whitelisted, so it cannot silently go undrawn |
+
+**And the value still does not appear**, because the timeline passes `title: "EXAMPLE"` explicitly, which shadows
+the project default. Removing that literal from `templates/project/engine/timeline.js` — the obvious fix — produced
+a **page exception** inside `checkTextLayout` that was not diagnosed, so the literals were restored rather than
+shipped broken. The example is green (29/29) with the wiring in place and inert.
+
+**Next attempt, in this order:** remove the literal title from `examples/minimal/engine/timeline.js` only (not the
+template), run `cvpw stills --times 7.5` first and read the exception from the page rather than from the gate
+stack. Then decide the precedence question the exception will force: when the timeline names a title AND the
+project declares an artist, both are authored and the authority order puts `project.json` (level 5) above code
+(level 7), so the project should win — but a scene arg is a direct instruction and silently overriding it is its
+own kind of surprise. That decision needs to be written down, not made in passing.
 
 ---
 

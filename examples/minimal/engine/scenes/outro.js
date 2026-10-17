@@ -35,6 +35,11 @@ export default scene({
   },
 
   draw({ g, f, args }) {
+    // project.json::artist and ::titleSub reach the end card here, as DEFAULTS only. A shot that names its own
+    // title still wins, so the timeline stays authoritative and the project supplies what the timeline left blank.
+    // The two strings were declared in the schema and read by nothing; this is the line that makes them visible.
+    const title = args.title === "TITLE" && f.title ? f.title : args.title;
+    const sub = args.sub === "" && f.titleSub ? f.titleSub : args.sub;
     const { width: W, height: H } = f.layout.space;
     const ink = f.color("ink");
     const paper = f.color("paper");
@@ -81,11 +86,11 @@ export default scene({
     // invisible in a thumbnail and obvious on a television.
     let size = titleSize;
     g.font = `700 ${size}px ui-serif, Georgia, serif`;
-    let width = g.measureText(args.title).width;
+    let width = g.measureText(title).width;
     if (width > maxWidth && width > 0) {
       size = Math.max(f.layout.type(48), Math.floor((size * maxWidth) / width));
       g.font = `700 ${size}px ui-serif, Georgia, serif`;
-      width = g.measureText(args.title).width;
+      width = g.measureText(title).width;
     }
 
     // A soft shadow rather than an outline: the film's typography rule is no outlined or haloed type.
@@ -93,7 +98,7 @@ export default scene({
     g.shadowBlur = f.layout.type(18) * (1 - eased * 0.6);
     g.shadowOffsetY = f.layout.type(4);
     g.fillStyle = paper;
-    g.fillText(args.title, centreX, titleY);
+    g.fillText(title, centreX, titleY);
     g.restore();
 
     // --- the underline ----------------------------------------------------------------------------
@@ -124,7 +129,7 @@ export default scene({
       g.fillStyle = rgba(paper, 0.7 * ruleProgress);
       g.letterSpacing = `${f.layout.type(4)}px`;
       const subWidth = g.measureText(args.sub).width;
-      if (subWidth <= maxWidth) g.fillText(args.sub, centreX, titleY + f.layout.type(78));
+      if (subWidth <= maxWidth) g.fillText(sub, centreX, titleY + f.layout.type(78));
       g.restore();
     }
 

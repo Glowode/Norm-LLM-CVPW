@@ -1,69 +1,69 @@
 {
-  "$schema": "schemas/project.schema.json",
-  "schemaVersion": 1,
-  "id": "minimal",
-  "title": "Replace me",
-  "titleSub": "",
-  "artist": "",
-  "credit": "",
-  "output": {
-    "width": 1920,
-    "height": 1080,
-    "fps": 30,
-    "color": "bt709",
-    "safe": 96,
-    "subtitleBand": 920
-  },
-  "variants": {
-    "master": {
-      "aspect": "16:9",
-      "container": "mp4",
-      "codec": "auto",
-      "crf": 16
-    },
-    "vertical": {
-      "aspect": "9:16",
-      "width": 1080,
-      "height": 1920
-    }
-  },
-  "audio": {
-    "file": "audio/song.wav",
-    "sampleRate": 48000,
-    "offset": 0
-  },
-  "timebase": {
-    "mode": "manual",
-    "meter": "4/4"
-  },
-  "style": "minimal-paper",
-  "render": {
-    "workers": 2,
-    "frameCodec": "jpeg",
-    "frameQuality": 0.94,
-    "motionBlur": {
-      "samples": 1
-    },
-    "allowSoftware": false
-  },
-  "budgets": {
-    "msPerFrame": 160,
-    "peakDiskGb": 5,
-    "flashPerSecond": 3,
-    "seamDiffMinor": 0.01,
-    "seamDiffFail": 0.03
-  },
-  "textWhitelist": [
-    "01",
-    "CHORUS",
-    "EXAMPLE",
-    "replace me",
-    "7×5"
-  ],
-  "seeds": {
-    "global": 20261011
-  },
-  "vectors": {
-    "grid": "beats"
-  }
+    "$schema":  "schemas/project.schema.json",
+    "schemaVersion":  1,
+    "id":  "minimal",
+    "title":  "Replace me",
+    "titleSub":  "",
+    "artist":  "EXAMPLE",
+    "credit":  "",
+    "output":  {
+                   "width":  1920,
+                   "height":  1080,
+                   "fps":  30,
+                   "color":  "bt709",
+                   "safe":  96,
+                   "subtitleBand":  920
+               },
+    "variants":  {
+                     "master":  {
+                                    "aspect":  "16:9",
+                                    "container":  "mp4",
+                                    "codec":  "auto",
+                                    "crf":  16
+                                },
+                     "vertical":  {
+                                      "aspect":  "9:16",
+                                      "width":  1080,
+                                      "height":  1920
+                                  }
+                 },
+    "audio":  {
+                  "file":  "audio/song.wav",
+                  "sampleRate":  48000,
+                  "offset":  0
+              },
+    "timebase":  {
+                     "mode":  "manual",
+                     "meter":  "4/4"
+                 },
+    "style":  "minimal-paper",
+    "render":  {
+                   "workers":  2,
+                   "frameCodec":  "jpeg",
+                   "frameQuality":  0.94,
+                   "motionBlur":  {
+                                      "samples":  1
+                                  },
+                   "allowSoftware":  false
+               },
+    "budgets":  {
+                    "msPerFrame":  160,
+                    "peakDiskGb":  5,
+                    "flashPerSecond":  3,
+                    "seamDiffMinor":  0.01,
+                    "seamDiffFail":  0.03
+                },
+    "textWhitelist":  [
+                          "01",
+                          "CHORUS",
+                          "EXAMPLE",
+                          "replace me",
+                          "7脳5"
+                      ],
+    "seeds":  {
+                  "global":  20261011
+              },
+    "vectors":  {
+                    "grid":  "beats"
+                }
 }

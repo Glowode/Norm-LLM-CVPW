@@ -180,6 +180,15 @@ export interface SceneFrame {
   /** The style this shot resolved, already merged (style defaults + shot overrides). */
   style: SceneStyle;
   /**
+   * `project.json::artist` and `::titleSub`, as declared.
+   *
+   * Exposed on the frame because a scene had no way to reach a project-level string, which is why these two were
+   * declared in the schema and read by nothing. Empty string when the project leaves them blank, so a scene can
+   * test truthiness rather than guarding against undefined.
+   */
+  title: string;
+  titleSub: string;
+  /**
    * A colour from the style's palette **by role**, e.g. `f.color("amber")`.
    *
    * This exists because the alternative — indexing `f.style.palette.colors` positionally — is a silent

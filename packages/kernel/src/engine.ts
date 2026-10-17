@@ -101,6 +101,10 @@ export interface EngineOptions {
    * seed actually reaches the scenes, which seeded from their own literals until this option existed.
    */
   seed?: string | number;
+  /** `project.json::artist`. Never invented by a scene; empty when undeclared. */
+  title?: string;
+  /** `project.json::titleSub`. */
+  titleSub?: string;
   assets?: AssetResolver;
   /** Disable the film-grain finish pass. Seam comparison MUST run with grain off. */
   noGrain?: boolean;
@@ -568,6 +572,9 @@ export class Engine {
         // Throws on an unknown role rather than returning a fallback. See the note on `SceneFrame.color`:
         // the failure this prevents is a scene drawing its subject in the background colour, which reports
         // nothing and survives every gate.
+        // Project-level strings, declared in the schema and reachable from a scene only through here.
+        title: this.options.title ?? "",
+        titleSub: this.options.titleSub ?? "",
         color(role: string): string {
           const value = shotStyle.palette.roles[role];
           if (typeof value !== "string" || value.length === 0) {
@@ -941,6 +948,8 @@ export class Engine {
       fps: this.timebase.fps,
       layout: this.layout,
       style: this.styleDef,
+      title: this.options.title ?? "",
+      titleSub: this.options.titleSub ?? "",
       color: (role: string): string => {
         const value = this.styleDef.palette.roles[role];
         if (typeof value !== "string" || value.length === 0) {
