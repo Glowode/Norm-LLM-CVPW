@@ -241,6 +241,70 @@ export interface RenderOutcome {
 }
 
 /**
+ * THE COST MODEL, measured on the reference machine, because it decides the whole API shape.
+ *
+ * ```
+ *   1 frame,  1 invocation   4.7 s
+ *   6 frames, 1 invocation   6.9 s   ->  6 PNG files, animation=True
+ *   6 frames, 6 invocations  28.2 s  (4.7 s x 6, extrapolated from the single-frame run)
+ * ```
+ *
+ * Solving those two numbers gives roughly **4.2 s fixed and 0.45 s marginal per frame**. The fixed
+ * cost is Blender starting up and compiling EEVEE shaders; it is paid once per invocation and is
+ * ~10x the cost of a small frame.
+ *
+ * For a 240-frame film: batched is about 112 s, unbatched about 19 minutes. So this module offers
+ * exactly one way to render a sequence, and it is the batched one. An API that allowed per-frame
+ * invocation would be an API that makes a 19-minute render look normal.
+ */
+export const COST_MODEL = { fixedMs: 4200, perFrameMs: 450 } as const;
+
+/** Estimate how long a batched render will take, so a caller can warn before starting one. */
+export function estimateRenderMs(frames: number): number {
+  return COST_MODEL.fixedMs + Math.max(0, frames) * COST_MODEL.perFrameMs;
+}
+
+/**
+ * Build the Python that renders a frame range in one invocation.
+ *
+ * `animation=True` is what batches: Blender renders the range internally, writing one file per frame,
+ * instead of the caller launching the process per frame and paying the fixed cost each time.
+ *
+ * `filepath` ends WITHOUT an extension or frame number, because Blender appends `%04d` from the
+ * scene's frame number. Passing a full filename produces `frame_0001.png0001.png`, which is a real
+ * mistake and a confusing one.
+ */
+export function buildAnimationScript(options: {
+  outputPrefix: string;
+  frameStart: number;
+  frameEnd: number;
+  resolution: number;
+  /** Body that builds the scene. Runs before the render call. */
+  setup: string;
+}): string {
+  return [
+    "import bpy, os",
+    "bpy.ops.wm.read_factory_settings(use_empty=True)",
+    "s = bpy.context.scene",
+    's.render.engine = "BLENDER_EEVEE"',
+    `s.render.resolution_x = ${options.resolution}`,
+    `s.render.resolution_y = ${options.resolution}`,
+    "s.render.resolution_percentage = 100",
+    's.render.image_settings.file_format = "PNG"',
+    // A directory path needs a trailing separator, or Blender treats it as a filename PREFIX and writes
+    // nothing where the caller is looking. Measured: passing a bare directory produced exit 0, a reached
+    // sentinel, and ZERO files. So the separator is forced here rather than left to the caller.
+    'p = os.environ["CVPW_OUT"]',
+    's.render.filepath = p if p.endswith(("/", "\\\\")) else p + "/"',
+    `s.frame_start = ${options.frameStart}`,
+    `s.frame_end = ${options.frameEnd}`,
+    options.setup,
+    "bpy.ops.render.render(animation=True)",
+    `print("${SENTINEL}")`,
+  ].join("\n");
+}
+
+/**
  * Run one Blender invocation, deciding success by sentinel and never by exit code.
  *
  * This is the whole bridge: everything a caller needs is "start the binary, hand it a script, and say honestly
