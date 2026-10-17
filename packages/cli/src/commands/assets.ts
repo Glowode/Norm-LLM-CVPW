@@ -169,3 +169,92 @@ export function assetsEnvelope(result: AssetsResult): Envelope {
     summary,
   };
 }
+// --- generation -----------------------------------------------------------------------------------
+
+/**
+ * `cvpw assets generate` — write the files a manifest declares, and record what came out.
+ *
+ * The manifest could already name a `generator` and a `prompt`; nothing read them, which is the same
+ * declared-but-inert shape this project has now fixed six times. This is the reader.
+ *
+ * The determinism rule is enforced here rather than assumed: a generator that is a pure function of its declared
+ * params produces the same bytes twice, and the command checks that by generating into a buffer twice and
+ * comparing before it writes anything. An asset whose bytes depend on when it was generated cannot carry a
+ * meaningful `sha256`, and `assets.manifest` would then fail at a random later date for no recorded reason.
+ */
+export interface GeneratedFile {
+  id: string;
+  path: string;
+  bytes: number;
+  sha256: string;
+  deterministic: boolean;
+}
+
+export interface GenerateResult {
+  written: GeneratedFile[];
+  skipped: Array<{ id: string; reason: string }>;
+  problems: Array<{ asset: string; message: string }>;
+}
+
+export async function generateAssets(root: string): Promise<GenerateResult> {
+  const { generate } = await import("@cvpw/kernel");
+  const { encodePng } = await import("../png.js");
+  const { createHash } = await import("node:crypto");
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
+
+  const manifestPath = join(root, "assets", "manifest.json");
+  const result: GenerateResult = { written: [], skipped: [], problems: [] };
+  if (!existsSync(manifestPath)) return result;
+
+  const manifest = (await readJson(manifestPath)) as {
+    assets?: Array<{ id?: string; path?: string; generator?: string; params?: Record<string, unknown> }>;
+  };
+
+  for (const asset of manifest.assets ?? []) {
+    const id = asset.id ?? "(unnamed)";
+    if (!asset.generator) {
+      result.skipped.push({ id, reason: "no `generator` — this asset is supplied by hand" });
+      continue;
+    }
+    if (asset.generator !== "paper" && asset.generator !== "flat") {
+      result.problems.push({
+        asset: id,
+        message: `unknown generator ${JSON.stringify(asset.generator)}; this framework implements "paper" and "flat"`,
+      });
+      continue;
+    }
+    if (!asset.path) {
+      result.problems.push({ asset: id, message: "no `path`, so there is nowhere to write the generated file" });
+      continue;
+    }
+
+    const params = asset.params ?? {};
+    const first = generate(asset.generator, params);
+    const second = generate(asset.generator, params);
+    const a = encodePng(first.rgba, first.width, first.height);
+    const b = encodePng(second.rgba, second.width, second.height);
+    const deterministic = a.equals(b);
+    if (!deterministic) {
+      result.problems.push({
+        asset: id,
+        message:
+          "generating the same params twice produced different bytes, so no sha256 of this asset can be trusted. " +
+          "A generator must be a pure function of its declared params (docs/SPEC.md D1-D4).",
+      });
+      continue;
+    }
+
+    const target = join(root, asset.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, a);
+    result.written.push({
+      id,
+      path: asset.path,
+      bytes: a.length,
+      sha256: createHash("sha256").update(a).digest("hex"),
+      deterministic,
+    });
+  }
+  return result;
+}

@@ -1135,12 +1135,20 @@ register({
   implemented: true,
   help: {
     name: "assets",
-    summary: "Validate assets/manifest.json: present, hash-matched, licensed, sourced.",
-    usage: "cvpw assets [--json]",
-    groups: [{ title: "flags", flags: [...COMMON_FLAGS] }],
-    examples: ["cvpw assets", "cvpw assets --json"],
+    summary: "Generate the assets a manifest declares, then validate them.",
+    usage: "cvpw assets [--generate] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          ...COMMON_FLAGS,
+          { name: "generate", type: "boolean", doc: "Write the files each asset declares, then validate what was written." },
+        ],
+      },
+    ],
+    examples: ["cvpw assets", "cvpw assets --generate"],
     notes: [
-      "Asset GENERATION is phase 2 and is not here. This is the gate.",
+      "--generate is deterministic by CONSTRUCTION and by CHECK: each asset is generated twice into a buffer and the bytes compared before anything is written. An asset whose bytes depend on when it was generated cannot carry a meaningful sha256, and assets.manifest would then fail at a random later date for no recorded reason.",
       "A project with no assets is valid: the reference template is entirely procedural, so a missing",
       "manifest reports 'nothing to validate' rather than failing.",
       "A licence is required because an unlicensed asset has to be replaced at delivery; a source because",
@@ -1150,6 +1158,17 @@ register({
   async run(args, root) {
     if (!root) throw new ContractError("no project.json found above the working directory");
     const { validateAssets, assetsEnvelope } = await import("./commands/assets.js");
+    // `--generate` writes the files first, so the validation below then checks what was actually produced rather
+    // than what the manifest hoped for.
+    if (args.flags.has("generate")) {
+      const generated = await generateAssetsRun(root);
+      if (!args.json) {
+        log.info("");
+        for (const file of generated.written) log.info(`  wrote ${file.path}  ${file.bytes} B  ${file.sha256.slice(0, 16)}`);
+        for (const item of generated.skipped) log.info(`  skipped ${item.id}: ${item.reason}`);
+        for (const problem of generated.problems) log.error(`  FAILED ${problem.asset}: ${problem.message}`);
+      }
+    }
     const envelope = assetsEnvelope(await validateAssets(root));
     if (!args.json) {
       log.info("");
@@ -1159,6 +1178,11 @@ register({
     return envelope;
   },
 });
+
+async function generateAssetsRun(root: string) {
+  const { generateAssets } = await import("./commands/assets.js");
+  return generateAssets(root);
+}
 
 // --- link ----------------------------------------------------------------------------------------
 
