@@ -456,6 +456,19 @@ export class Engine {
 
     if (this.samples <= 1) {
       this.renderOnce(clamped, this.g, this.canvas.width, this.canvas.height, false);
+      // **This branch used to return here, and that one line is why the whole grade was dead.**
+      //
+      // `samples` defaults to 1, so every ordinary render took this path — while `finish()`, which applies
+      // `post.vignette`, `post.tint`, `post.grain` and `post.bloom`, was only called at the end of the
+      // motion-blur branch below. Confirmed with a counter inside `finish`: after rendering a frame of a shot
+      // declaring `post: { bloom: 0.35 }`, the counter was still `undefined`.
+      //
+      // Everything this hid: no project has ever had its declared grade applied; `noGrain` never mattered;
+      // `docs/QA.md`'s "seam comparison must run with grain off" was satisfied by grain never running at all;
+      // and `drawOverlay` was skipped here too, so `--overlay` stills carried no overlay.
+      const active = this.activeShots(this.timebase.frameIndex(clamped));
+      this.finish(this.g, active, this.timebase.frameIndex(clamped));
+      if (this.options.overlay) this.drawOverlay(this.g, clamped, active);
       return;
     }
 
@@ -732,6 +745,8 @@ export class Engine {
     if (!this.options.noGrain && post.grain && post.grain > 0) {
       this.drawGrain(g, post.grain, frame);
     }
+
+
     // `bloom` was declared in `timeline.schema.json`, used by the template's own timeline, and **silently
     // ignored** — the schema accepted it, so nothing warned. That is the exact class of defect this framework
     // forbids (A4: a key is caught, never quietly dropped), and it went unnoticed for as long as it did because

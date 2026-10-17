@@ -107,7 +107,7 @@ measured timebase, resolved cuts, reproducible render, gates, baseline, delivery
 **What it does not close:** `av.sync` still measures only container-level offsets, not wave-
 form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
 right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
-### 3. CONFIRMED OPEN DEFECT: the entire post chain never runs
+### 3. FIXED: the entire post chain never ran — one early `return` in `renderFrame`
 
 `post.vignette`, `post.tint`, `post.grain` and `post.bloom` have **never had any effect in any project**, in any
 configuration, since the engine was written. This is not a bloom bug; bloom was the symptom that led here.
@@ -128,6 +128,49 @@ ONE frame at t=4.333 (inside s03_burst): null
 
 `undefined`. **`finish()` is never called.** Not with an empty post, not with the wrong post — not at all.
 
+**THE CAUSE, found in one read.** `renderFrame` has two paths and the ordinary one returned before the grade:
+
+```ts
+if (this.samples <= 1) {
+  this.renderOnce(clamped, this.g, this.canvas.width, this.canvas.height, false);
+  return;                        // <-- finish() never reached on the default path
+}
+```
+
+`samples` defaults to 1, so every normal render took that branch. `finish()` — which applies `post.vignette`,
+`post.tint`, `post.grain`, `post.bloom` — was only called after the motion-blur loop. **One `return` made the
+entire declared grade inert**, in every project, since the engine was written. `drawOverlay` was skipped on that
+path too, so `--overlay` stills carried no overlay.
+
+**VERIFIED BY A FAILING BASELINE.** A `qa/gold.json` taken while the grade was dead:
+
+| | before the fix | after |
+|---|---|---|
+| gold witnesses agreeing with baseline | 11/11 | **0/11** |
+
+All eleven frames changed. The baseline was then re-taken, and now agrees 11/11 again — so the grade is applied
+*and* deterministic.
+
+**VERIFIED BY A WARNING FIRING.** With `finish` running, the engine's "declared but not implemented" check is
+reachable for the first time. An unimplemented key injected into a shot's `post` produced exactly:
+
+```
+post.bogusKey is declared but this engine does not implement it, so it has no effect
+```
+
+**The looked-at confirmation.** A still at `t=4.5` went from 340 KB to 1.3 MB — grain adds entropy — and shows
+the vignette and the burst's halation, which no earlier still in this project had.
+
+Both projects re-verified after the fix: the committed example passes **27/27 gates**, the working demo passes 22
+with one failure that is its own stale `msPerFrame: 40` budget.
+
+**The lesson, now worth more than the bug.** Five instruments produced confident wrong numbers this session — a
+BOM, a stale `report.output`, a PowerShell parse error that skipped an edit, an inspection copy (`resolved`), and
+a white marker that could not be seen because the code never ran. Each was caught only when a second,
+independent measurement disagreed. **A single measurement agreeing with what you expected is not evidence**, and
+the cheapest second opinion is usually "does the thing I just changed have *any* observable effect at all?"
+
+
 **Why the earlier evidence misled, three times over:**
 
 1. "`post.bloom` reaches the engine, `resolved` shows it" — `resolved` is an inspection copy; mutating
@@ -144,7 +187,7 @@ ONE frame at t=4.333 (inside s03_burst): null
 - Any project that set a grade in `project.json` or in a shot's `post` got nothing, silently, and `cvpw validate`
   accepted it.
 
-**Next session, and this is now the top item in the whole project:**
+**The fix, and what verified it:**
 
 1. Read `renderFrame`'s entry path. There are two: a motion-blur wrapper that calls `renderOnce` per sub-frame and
    then `finish` at engine.ts:492, and (apparently) a single-sample path that returns without reaching it. Find
