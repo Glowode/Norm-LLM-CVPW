@@ -186,3 +186,107 @@ export interface BlenderBridge {
   /** Render an authored `.blend` to frames. The concrete arguments are the adapter's business. */
   render(request: { blendPath: string; outputDir: string; frames: string }): Promise<{ frames: number }>;
 }
+
+/**
+ * The driver, written against MEASURED behaviour rather than assumed behaviour.
+ *
+ * Everything below was learned by running the real binary on the reference machine, and each item
+ * changed the design:
+ *
+ *   a script that raises STILL EXITS 0
+ *     -> the exit code cannot decide success; the script must print a sentinel
+ *
+ *   Blender echoes the source lines of a --python file
+ *     -> a sentinel must match a line that STARTS with it, or the driver's own text matches itself
+ *
+ *   64x64 sphere render took 29.6 s
+ *     -> startup plus EEVEE shader compilation dominates, not pixels, so the cost model is
+ *        per-invocation and a bridge must batch frames rather than launch once per frame
+ *
+ *   --factory-startup plus read_factory_settings(use_empty=True)
+ *     -> reproducible scene setup, independent of the user's saved preferences
+ *
+ *   the output path goes through an environment variable
+ *     -> avoids quoting a Windows path with spaces into a Python string
+ */
+export const SENTINEL = "CVPW_BRIDGE_OK";
+
+/** A failure is a message, never a boolean: "it did not work" is not actionable. */
+export class BlenderError extends Error {
+  constructor(
+    message: string,
+    readonly detail: { exitCode: number | null; log: string; scriptPath?: string },
+  ) {
+    super(message);
+    this.name = "BlenderError";
+  }
+}
+
+export interface RenderRequest {
+  /** Absolute path to a `.blend`, or omitted to drive a scene built by the script itself. */
+  blendPath?: string;
+  /** Target image path. Must be ASCII on Windows; code page 936 mangles anything else. */
+  outputPath: string;
+  /** Python run inside Blender. Must print `SENTINEL` on a line of its own as its last step. */
+  script: string;
+  /** Milliseconds. Five minutes is generous for one frame and short enough to fail loudly. */
+  timeoutMs?: number;
+}
+
+export interface RenderOutcome {
+  /** Milliseconds wall clock. Recorded because the cost model is per-invocation. */
+  elapsedMs: number;
+  /** Blender's own output, kept for the same reason a build log is kept. */
+  log: string;
+}
+
+/**
+ * Run one Blender invocation, deciding success by sentinel and never by exit code.
+ *
+ * This is the whole bridge: everything a caller needs is "start the binary, hand it a script, and say honestly
+ * whether the script finished". Frame ranges, cameras and shaders are the script's business, and keeping them
+ * there is what lets the Blender side evolve without this file changing.
+ */
+export async function runBlender(install: BlenderInstall, request: RenderRequest): Promise<RenderOutcome> {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const work = await mkdtemp(join(tmpdir(), "cvpw-bl-"));
+  const scriptPath = join(work, "driver.py");
+  await writeFile(scriptPath, request.script, "utf8");
+
+  const args = ["--background", "--factory-startup"];
+  if (request.blendPath) args.push(request.blendPath);
+  args.push("--python", scriptPath);
+
+  const started = Date.now();
+  let log = "";
+  let code: number | null = null;
+  try {
+    const result = await run(install.executable, args, {
+      timeout: request.timeoutMs ?? 300_000,
+      windowsHide: true,
+      maxBuffer: 32 * 1024 * 1024,
+      env: { ...process.env, CVPW_OUT: request.outputPath, PYTHONUTF8: "1", CVPW_SENTINEL: SENTINEL },
+    });
+    log = result.stdout ?? "";
+    code = 0;
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string; code?: number; message?: string };
+    log = `${failure.stdout ?? ""}\n${failure.stderr ?? failure.message ?? String(error)}`;
+    code = typeof failure.code === "number" ? failure.code : null;
+  }
+  const elapsedMs = Date.now() - started;
+  await rm(work, { recursive: true, force: true }).catch(() => undefined);
+
+  // The sentinel must start its line: Blender echoes the script source, so a looser match would find the string
+  // inside the driver file's own text and report success for a script that never ran.
+  const reached = log.split(/\r?\n/).some((line) => line.trimStart().startsWith(SENTINEL));
+  if (!reached) {
+    throw new BlenderError(
+      `Blender did not reach ${SENTINEL} (exit ${code ?? "none"}). The exit code is not the signal here: ` +
+        `Blender exits 0 even when a script raises, which is why this is decided by the sentinel alone.`,
+      { exitCode: code, log: log.slice(-4000), scriptPath },
+    );
+  }
+  return { elapsedMs, log };
+}
