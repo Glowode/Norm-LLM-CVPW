@@ -47,6 +47,12 @@ export const IMPLEMENTED_CHECKS = [
   "handoff.pixel",
   "deliver.credit",
   "publish.lyricText",
+  "timeline.moment",
+  "timeline.absoluteTimes",
+  "scene.emptyFrames",
+  "scene.perf",
+  "lyrics.alignment",
+  "render.registry",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -566,6 +572,23 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (
+    should("timeline.moment") ||
+    should("timeline.absoluteTimes") ||
+    should("scene.emptyFrames") ||
+    should("scene.perf") ||
+    should("lyrics.alignment") ||
+    should("render.registry")
+  ) {
+    // Six gates over artifacts already on disk. One import, six pushes, milliseconds total.
+    const staticGates = await import("./gates-static.js");
+    if (should("timeline.moment")) outcomes.push(staticGates.gateMoment(storyboard));
+    if (should("timeline.absoluteTimes")) outcomes.push(await staticGates.gateAbsoluteTimes(context.root));
+    if (should("scene.emptyFrames")) outcomes.push(staticGates.gateEmptyFrames(storyboard, context.fps));
+    if (should("scene.perf")) outcomes.push(await staticGates.gateScenePerf(context.root));
+    if (should("lyrics.alignment")) outcomes.push(await staticGates.gateLyricsAlignment(context.root));
+    if (should("render.registry")) outcomes.push(await staticGates.gateRegistry(context.root, storyboard));
   }
   if (should("publish.lyricText")) {
     // Pure file check, and the one gate here that is a LEGAL matter rather than a quality one

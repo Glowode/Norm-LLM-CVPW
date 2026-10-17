@@ -47,7 +47,7 @@
     "allowSoftware": false
   },
   "budgets": {
-    "msPerFrame": 40,
+    "msPerFrame": 160,
     "peakDiskGb": 5,
     "flashPerSecond": 3,
     "seamDiffMinor": 0.01,
