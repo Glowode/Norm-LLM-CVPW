@@ -143,3 +143,5 @@ export { DEFAULT_KEY, keyChroma, keyChromaInPlace, trimBounds } from "./chroma.j
 export type { ChromaKeyOptions } from "./chroma.js";
 export { generate } from "./png.js";
 export type { GeneratedAsset, GeneratorName } from "./png.js";
+export { decideAlignment } from "./asr.js";
+export type { AlignedLine, AlignmentPolicy, AsrProvider, AsrRequest } from "./asr.js";
