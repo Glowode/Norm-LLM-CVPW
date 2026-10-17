@@ -42,6 +42,7 @@ export const IMPLEMENTED_CHECKS = [
   "text.safeArea",
   "text.legibility",
   "flash.rate",
+  "timeline.pacing",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -561,6 +562,33 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (should("timeline.pacing")) {
+    // Pure arithmetic on the storyboard, so it needs no browser and costs milliseconds. It runs here as well
+    // as in `cvpw storyboard` because a gate that only exists in one of the two places gets forgotten.
+    const { analysePacing } = await import("./pacing.js");
+    const pacing = analysePacing(
+      (storyboard?.shots ?? []).map((shot) => ({ id: shot.id, t0: shot.t0, t1: shot.t1, block: shot.block })),
+      {
+        sections: (await (async () => {
+          const { existsSync } = await import("node:fs");
+          const audioPath = projectPaths(context.root).analysisAudio;
+          if (!existsSync(audioPath)) return [];
+          const audio = (await readJson(audioPath)) as { sections?: Array<{ name?: string; start?: number; end?: number }> };
+          return (audio.sections ?? [])
+            .filter((section) => typeof section.start === "number" && typeof section.end === "number")
+            .map((section) => ({ name: section.name ?? "", t0: section.start as number, t1: section.end as number }));
+        })()),
+      },
+    );
+    outcomes.push({
+      id: "timeline.pacing",
+      title: "the edit has a shape: holds, variation, and contrast between sections",
+      ok: pacing.ok,
+      measured: pacing.measured,
+      offenders: pacing.offenders,
+      ...(pacing.skipped ? { skipped: pacing.skipped } : {}),
+    });
   }
   if (should("flash.rate")) {
     const { checkFlash } = await import("./flash.js");
