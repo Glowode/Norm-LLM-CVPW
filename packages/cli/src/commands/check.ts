@@ -41,6 +41,7 @@ export const IMPLEMENTED_CHECKS = [
   "text.whitelist",
   "text.safeArea",
   "text.legibility",
+  "flash.rate",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -560,6 +561,26 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (should("flash.rate")) {
+    const { checkFlash } = await import("./flash.js");
+    const flash = await checkFlash({
+      root: context.root,
+      fps: context.fps,
+      duration: context.duration,
+      width: context.width ?? 1920,
+      height: context.height ?? 1080,
+    });
+    outcomes.push({
+      id: "flash.rate",
+      title: "flash rate is within budget, or the film warns about it",
+      ok: flash.ok,
+      measured: flash.measured,
+      // A `flash.warned` offender is the record that the film exceeds the budget AND warns, which is an
+      // acceptable exhibit rather than a failure. It stays in the list so the report says so.
+      offenders: flash.offenders,
+      ...(flash.skipped ? { skipped: flash.skipped } : {}),
+    });
   }
   if (should("render.frameCount") || should("av.sync")) {
     // `resolveTool` is imported lazily so a run that does not need ffprobe does not pay for the probe.

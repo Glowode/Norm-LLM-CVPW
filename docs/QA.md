@@ -54,7 +54,7 @@ reason to skip the check by hand.
 | `render.frameCount` | 7 | MP4 frame count **==** `round(duration × fps)` | `cvpw check --frames` | `frame-count <observed> != <expected>` | no |
 | `av.sync` | 7 | decoded-track cross-correlation lag ≤ **1 frame** (33.3 ms at 30 fps) | `cvpw check --av-sync` | `av-lag <ms>` | yes |
 | `handoff.pixel` | 7 | mean-abs-diff **< 0.03** (and **< 0.01** is `ok`), grain disabled | `cvpw handoff` | `ALIGN <seamId> <diff>` | yes |
-| `flash.rate` | 6,7 | ≤ 3 large-area luminance round-trips per 1 s window; saturated red weighted; tear/stripe patterns held ≥ 6 frames | `cvpw check --flash` | `flash <t> <n>/s`, `red-flash <t>`, `tear-pattern <t>` | no |
+| `flash.rate` | 6,7 | ≤ 3 large-area luminance round-trips per 1 s window **OR** a photosensitivity warning on screen at the start | `cvpw check --flash` | `flash <t> <n>/s`, `red-flash <t>` | no — see below |
 | `text.safeArea` | 5,6 | every on-screen text box inside the declared `safe` inset and clear of `subtitleBand` | `cvpw check --text`, `cvpw stills --overlay` | `safe-area <shotId> <edge>`, `subtitle-band <shotId>` | yes |
 | `text.legibility` | 6 | names ≥ **48 px** at 1080p; readable ≥ **0.25 s** before leaving; any text < **6 px** replaced or dropped | `cvpw check --text` | `small-text <shotId> <px>`, `short-hold <shotId> <s>` | yes |
 | `text.whitelist` | 5 | 0 on-screen strings outside `project.json::textWhitelist` | `cvpw lint` | `unlisted-text <string>@<shotId>` | no — edit the whitelist with a reason |
@@ -84,6 +84,39 @@ Measured on the canvas via `getImageData`, not from captured bytes: JPEG artefac
 blank frames differ slightly, and a threshold carrying slack for that is exactly what this gate must not
 have. This is a *visibility* check, so reading the canvas is the right instrument; `frameHash` still comes
 from captured bytes, for the reason [ADR 0007](./adr/0007-warmup-frames-and-first-frame-instability.md) gives.
+
+**`flash.rate` is two-tier, and the second tier is not a warning.** The budget is 3 large-area luminance
+round-trips per second, with saturated red weighted more heavily because it is the most provocative frequency
+for a photosensitive viewer. A film within budget passes and needs nothing.
+
+A film that **exceeds** it is not rejected outright. That would be the wrong instrument: some genres genuinely
+want a strobe, and the harm is preventable rather than inevitable. What the guideline actually requires is that
+the audience is told before it starts. So an over-budget film passes **only if** it declares and displays a
+photosensitivity caution:
+
+```json
+"accessibility": {
+  "photoSensitivityWarning": {
+    "text": "Photosensitivity warning: this film contains flashing images",
+    "minDuration": 3,
+    "atExpression": "0"
+  }
+}
+```
+
+The warning must (a) be the exact declared string, (b) be drawn within the film's opening moments, (c) be held
+for at least `minDuration` seconds, and (d) therefore also pass `text.safeArea`. A declared warning that never
+reaches the screen protects nobody, and the gate verifies it by instrumenting `fillText` rather than trusting
+`project.json` — the declaration says what was intended, the screen says what happened.
+
+Three failure codes, each naming what to do: `flash.no-warning` (over budget, nothing declared),
+`flash.warning-missing` (declared but never drawn), `flash.warning-too-brief` (drawn, not long enough). A film
+that exceeds the budget **and** warns is reported as `flash.warned` with its measured window, so the delivery
+report states the exception rather than hiding it.
+
+**Tear and stripe patterns are specified and not measured.** Detecting a stationary high-contrast grating needs
+spatial frequency analysis; claiming it with a luminance scan would be a gate whose name promised more than it
+checked. The limitation is printed in the measurement output, not buried in a comment.
 
 **`render.noDeadFrames` is not redundant with `scene.emptyFrames`.** `scene.emptyFrames` samples
 scenes at named times; `render.noDeadFrames` is a **full-rate, low-resolution pass** over every frame of
