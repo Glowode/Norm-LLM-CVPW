@@ -1,0 +1,24 @@
+{
+  "$schema": "schemas/handoff.schema.json",
+  "schemaVersion": 1,
+  "seams": [
+    {
+      "id": "s01_open|s02_grid",
+      "t": "cue('grid_in')",
+      "mode": "pixel",
+      "lastFrameOf": "s01_open",
+      "firstFrameOf": "s02_grid",
+      "contract": { "params": { "carryInk": "#140b1e" } },
+      "note": "A hard cut with no overlap, so open's last frame and grid's first frame have to agree on the field colour. Both are procedural, so a small diff here means the palette is shared correctly."
+    },
+    {
+      "id": "s02_grid|s03_burst",
+      "t": "cue('chorus')",
+      "mode": "transition",
+      "lastFrameOf": "s02_grid",
+      "firstFrameOf": "s03_burst",
+      "contract": { "params": { "flash": 0.55, "overlap": 0.12 } },
+      "note": "burst OWNS the drawing across this cut, so there is nothing to compare. Graded unchecked, not failed — grading a deliberate choice would be the gate overreaching."
+    }
+  ]
+}

@@ -66,3 +66,4 @@ examples/*/render/
 examples/*/review/
 examples/*/delivery.json
 examples/*/docs/STORYBOARD.md
+examples/*/handoff.report.json
