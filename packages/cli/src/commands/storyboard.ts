@@ -67,7 +67,7 @@ export interface StoryboardResult {
 }
 
 /** Build a timebase from the project's artifacts. Shared shape with the validator, deliberately. */
-export async function buildTimebase(root: string): Promise<{ timebase: Timebase; warnings: string[] }> {
+export async function buildTimebase(root: string): Promise<{ timebase: Timebase; data: TimebaseData; warnings: string[] }> {
   const paths = projectPaths(root);
   const warnings: string[] = [];
 
@@ -91,7 +91,7 @@ export async function buildTimebase(root: string): Promise<{ timebase: Timebase;
   if (!cuesDoc) warnings.push("cues/cues.json is absent, so no named cue resolves.");
 
   const duration = audio?.duration ?? (await timelineDurationHint(root)) ?? 8;
-  const timebase = new Timebase({
+  const data: TimebaseData = {
     duration,
     fps: audio?.fps ?? project?.output?.fps ?? 30,
     ...(audio?.tempo ? { tempo: audio.tempo } : {}),
@@ -105,8 +105,9 @@ export async function buildTimebase(root: string): Promise<{ timebase: Timebase;
     stops: audio?.stops ?? [],
     cues: cuesDoc?.cues ?? [],
     lyricLines: lyricsTiming?.lines ?? [],
-  });
-  return { timebase, warnings };
+  };
+  const timebase = new Timebase(data);
+  return { timebase, data, warnings };
 }
 
 /** Read just the `duration` from `engine/timeline.js` without executing it, for a project with no audio. */
@@ -301,6 +302,49 @@ export async function buildStoryboard(root: string): Promise<StoryboardResult> {
   }
 
   // --- write timeline.json ------------------------------------------------------------------------
+  // Cross-check the resolved shots against @cvpw/runtime, which loads the project independently.
+  //
+  // Two independent resolvers agreeing is a check; one resolver agreeing with itself is not. If they disagree,
+  // the storyboard is wrong and saying so here is far cheaper than a render that cuts at the wrong instant.
+  const crossWarnings: string[] = [];
+  try {
+    const { loadProject } = await import("@cvpw/runtime");
+    const engineScenes = join(root, "engine", "scenes", "manifest.js");
+    const engineStyles = join(root, "engine", "styles", "manifest.js");
+    // The same raw data the storyboard itself resolved from, handed to an independent loader. Reaching into
+    // the Timebase object would have been the same computation twice, which proves nothing.
+    const crossData = (await buildTimebase(root)).data;
+    const crossLoaded = await loadProject({
+      root,
+      scenesEntry: engineScenes,
+      stylesEntry: engineStyles,
+      timeline: paths.timeline,
+      timebase: crossData,
+    });
+    if (crossLoaded.registered.length === 0) {
+      crossWarnings.push(
+        "the runtime loader registered no scenes, so it could not verify the timeline. The project's " +
+          "vendor/kernel may be missing, or a scene module exported a definition without calling scene({...}).",
+      );
+    } else {
+      const mismatched = crossLoaded.shots.filter((shot) => {
+        const mine = shots.find((entry) => entry.id === shot.id);
+        return mine !== undefined && Math.abs(mine.t0 - shot.t0) > 1e-6;
+      });
+      if (mismatched.length > 0) {
+        crossWarnings.push(
+          `the runtime loader resolves ${mismatched.length} shot(s) differently: ` +
+            mismatched.map((shot) => `${shot.id} ${shot.t0.toFixed(4)} vs ${shots.find((m) => m.id === shot.id)?.t0.toFixed(4)}`).join(", "),
+        );
+      }
+    }
+  } catch (error) {
+    crossWarnings.push(
+      `the runtime cross-check could not run: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  warnings.push(...crossWarnings);
+
   const derived = {
     $schema: "schemas/timeline.schema.json",
     schemaVersion: 1,

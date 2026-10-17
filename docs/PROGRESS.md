@@ -261,7 +261,43 @@ disagreeing is precisely the failure `render.frameCount` exists to catch.
 `docs/PROGRESS.md`'s "not started" list is down to `@cvpw/runtime` and the phase-2 features. The framework
 now scaffolds a project, validates it, storyboards it, checks it, renders it reproducibly, and can prove the
 render has not changed.
-### 6. `@cvpw/runtime` is still contract-only — the last unimplemented package
+### 6. `@cvpw/runtime` is implemented — and it found a module-instance trap
+
+The last contract-only package now loads a project without a browser: it imports the scene and style modules
+with a **tripwire `document`**, resolves every `at`/`to` through the timebase, validates each shot's args the
+way the engine would, and collects every problem instead of throwing on the first — so three broken times
+report three, not one per round trip.
+
+Verified against the real demo project, headlessly:
+
+```
+registered scenes: burst, grid, hold, open
+shots: 4   problems: 0   warnings: 0
+  s01_open   open    0.000–2.496  frames 0-75    args={pulse:0.4, rings:3, hue:0.08, label:"01"}
+  s02_grid   grid    2.496–4.000  frames 75-120  args={density:7, hue:0.55, snap:0.14, travel:0.9}
+  s03_burst  burst   4.000–6.500  frames 120-195 args={count:90, hue:0.08, …}
+  s04_hold   hold    6.500–8.000  frames 195-240 args={title:"EXAMPLE", sub:"replace me", …}
+```
+
+**The trap worth recording.** The first version imported the manifest successfully and then reported *every
+scene as unknown*. The cause: a project **vendors its kernel** into `vendor/kernel/`, and its scene modules
+import that copy, so `scene({...})` registers into the vendored kernel's registry — while the loader imported
+its own `@cvpw/kernel`, a different module instance with a different registry. Two libraries, one name, and
+`scenes.names()` returning `[]` while the import succeeded.
+
+The fix is that the loader takes its registries from **the project's** kernel (`kernelEntry`, defaulting to
+`vendor/kernel/dist/index.js`), which is also the honest model: the browser runs the vendored kernel, so a
+loader that disagreed with it would be validating a film nobody renders.
+
+`cvpw storyboard` now runs the loader as an **independent cross-check** on its own resolution. Two resolvers
+agreeing is a check; one agreeing with itself is not — and a disagreement is reported as a warning naming both
+times, which is far cheaper than a render that cuts at the wrong instant.
+
+**Nine new tests** cover the resolution paths that matter: bar/half-beat/cue expressions, three broken
+expressions reported as three problems with the right shot ids, an unknown scene named against what *is*
+registered, a missing timeline naming the command that writes it, a coverage gap as a warning rather than an
+error (a gap is still renderable), args rejected per shot, and style defaults filled the way the browser fills
+them.
 
 ### 7. The engine draws, but nothing unit-tests it
 
@@ -357,17 +393,14 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`@cvpw/runtime`** — the last contract-only package. It is the DOM-free loader `cvpw check` wants for
-   cross-artifact validation, and the thing a headless consumer (a CI job, a different agent platform) needs
-   in order to read a project without a browser.
-2. **`examples/minimal/`** — a committed, working project. Everything in this repository is now
+1. **`examples/minimal/`** — a committed, working project. Everything in this repository is now
    *demonstrated* but nothing is *checked in*, so the fastest way to regress the template is to change it and
    never scaffold again.
-3. **Unit tests for the engine** — `renderFrame(t)` is proven end-to-end and by hash, but `engine.ts` has no
+2. **Unit tests for the engine** — `renderFrame(t)` is proven end-to-end and by hash, but `engine.ts` has no
    focused tests, so a change to the layer pool or the transition maths is caught only by re-rendering.
-4. **The gate ids `docs/QA.md` still lists** — `render.frameCount`, `av.sync`, `flash.rate`, `text.safeArea`,
+3. **The gate ids `docs/QA.md` still lists** — `render.frameCount`, `av.sync`, `flash.rate`, `text.safeArea`,
    `text.legibility`, `timeline.pacing`, `render.noDeadFrames`. The suite runs five of twenty-four.
-5. Then phase 2: the WebGL post chain, asset generation and chroma-key, lyric forced alignment, the Blender
+4. Then phase 2: the WebGL post chain, asset generation and chroma-key, lyric forced alignment, the Blender
    bridge.
 
 **What is proven now, end to end and by hash:** a project scaffolds itself from the template, analyses real
