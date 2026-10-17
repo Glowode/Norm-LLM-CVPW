@@ -141,3 +141,5 @@ export { createGLPost } from "./glpost.js";
 export type { GLPost, GLPostParams } from "./glpost.js";
 export { DEFAULT_KEY, keyChroma, keyChromaInPlace, trimBounds } from "./chroma.js";
 export type { ChromaKeyOptions } from "./chroma.js";
+export { generate } from "./png.js";
+export type { GeneratedAsset, GeneratorName } from "./png.js";
