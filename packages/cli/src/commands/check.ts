@@ -60,6 +60,7 @@ export const IMPLEMENTED_CHECKS = [
   "timeline.coverage",
   "determinism.workerCount",
   "render.postApplied",
+  "blender.version",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -662,6 +663,43 @@ export async function runChecks(
         "this gate renders the film twice and is not run by default. Compare frame hashes from two `cvpw render " +
         "--workers N` runs in render/report.json, or run `cvpw check --only determinism.workerCount` deliberately. " +
         "It was verified by hand: --workers 1 and --workers 4 produced a byte-identical MP4.",
+    });
+  }
+  if (should("blender.version")) {
+    // Blender is phase 2, so its ABSENCE is a skip and its AGE is a failure. A gate that failed on absence would
+    // make every machine without Blender look broken; a gate that skipped on age would let a 4.x build render a
+    // film that differs in ways no pixel check here can see.
+    const { discoverBlender, selectBlender, BLENDER_MIN } = await import("../blender.js");
+    const rootPath = process.env["CVPW_BLENDER_ROOT"] ?? "D:\\Program Files\\Blender Foundation";
+    const found = await discoverBlender(rootPath);
+    const chosen = selectBlender(found.installs);
+    const oldest = found.installs[0]?.version;
+    outcomes.push({
+      id: "blender.version",
+      title: "the Blender the bridge can reach is 5.0 or newer",
+      ok: Boolean(chosen) || found.installs.length === 0,
+      measured: {
+        root: rootPath,
+        found: found.installs.length,
+        selected: chosen ? chosen.version.banner : "none",
+        floor: BLENDER_MIN.join("."),
+      },
+      offenders:
+        !chosen && oldest
+          ? [
+              {
+                code: "blender.too-old",
+                where: rootPath,
+                detail:
+                  `${found.installs.length} install(s) found, highest is ${oldest.banner}, and the bridge requires ` +
+                  `${BLENDER_MIN.join(".")} or newer. An older build renders subtly differently in ways no gate ` +
+                  `here can see, so this is a failure rather than a warning.`,
+              },
+            ]
+          : [],
+      ...(found.installs.length === 0
+        ? { skipped: `no blender.exe under ${rootPath} — the bridge is phase 2, so nothing else depends on it` }
+        : {}),
     });
   }
   if (should("render.postApplied")) {
