@@ -39,11 +39,16 @@ export const IMPLEMENTED_CHECKS = [
   "scenes.registry",
   "timeline.time",
   "text.whitelist",
+  "text.safeArea",
+  "text.legibility",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
 export interface CheckContext {
   root: string;
+  /** Output size. The text gates judge type sizes at 1080p proportions (docs/QA.md). */
+  width?: number;
+  height?: number;
   /** Output frame rate, from `project.json` or the analysis. */
   fps: number;
   duration: number;
@@ -519,6 +524,38 @@ export async function runChecks(
   if (should("timeline.time")) outcomes.push(checkTimeline(storyboard));
   if (should("scenes.registry")) outcomes.push(checkRegistry(context.root, storyboard));
   if (should("text.whitelist")) outcomes.push(await checkText(context.root, storyboard));
+  if (should("text.safeArea") || should("text.legibility")) {
+    // Its own module: the whitelist gate above already owns the name `checkText`, and two functions of that
+    // name in one file is a collision that gets diagnosed twice.
+    const { checkTextLayout } = await import("./text.js");
+    const layout = await checkTextLayout({
+      root: context.root,
+      fps: context.fps,
+      duration: context.duration,
+      width: context.width ?? 1920,
+      height: context.height ?? 1080,
+    });
+    if (should("text.safeArea")) {
+      outcomes.push({
+        id: "text.safeArea",
+        title: "every on-screen text box is inside the safe inset",
+        ok: layout.safeArea.ok,
+        measured: layout.safeArea.measured,
+        offenders: layout.safeArea.offenders,
+        ...(layout.safeArea.skipped ? { skipped: layout.safeArea.skipped } : {}),
+      });
+    }
+    if (should("text.legibility")) {
+      outcomes.push({
+        id: "text.legibility",
+        title: "on-screen text is large enough and held long enough to read",
+        ok: layout.legibility.ok,
+        measured: layout.legibility.measured,
+        offenders: layout.legibility.offenders,
+        ...(layout.legibility.skipped ? { skipped: layout.legibility.skipped } : {}),
+      });
+    }
+  }
   if (should("render.frameContent")) {
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
