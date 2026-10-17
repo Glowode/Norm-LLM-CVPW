@@ -75,10 +75,22 @@ export function textProbeExpression(
       var size = match ? Number(match[1]) : 0;
       var w = m.width;
       var left = this.textAlign === "center" ? x - w / 2 : (this.textAlign === "right" || this.textAlign === "end") ? x - w : x;
-      var top = y - size * 0.8;
-      if (this.textBaseline === "top" || this.textBaseline === "hanging") top = y;
-      else if (this.textBaseline === "middle") top = y - size * 0.5;
-      frames.push({ text: String(text), x: left, y: top, w: w, h: size * 1.2, size: size, font: this.font });
+      /* The box depends on the baseline, and getting it wrong makes the gate cry wolf. With
+         textBaseline "bottom" has its ink ABOVE y, so the box must end at y — the first version used a
+         single default (y - size*0.8 .. y + size*1.2) and reported a caption at bottom 906 as
+         overflowing a band at 920, which was the probe's error, not the film's. A gate that fails correct
+         frames gets ignored, so the ascent and descent are taken per baseline. */
+      var top, bottom;
+      if (this.textBaseline === "top" || this.textBaseline === "hanging") {
+        top = y; bottom = y + size * 1.2;
+      } else if (this.textBaseline === "middle") {
+        top = y - size * 0.6; bottom = y + size * 0.6;
+      } else {
+        /* bottom / alphabetic / ideographic: the baseline is near the bottom of the ink, with a descender
+           below it that is a fraction of the size. */
+        top = y - size; bottom = y + size * 0.2;
+      }
+      frames.push({ text: String(text), x: left, y: top, w: w, h: bottom - top, size: size, font: this.font });
       return original.call(this, text, x, y);
     };
     proto.__cvpwTextProbe = true;
@@ -243,7 +255,11 @@ export async function checkTextLayout(input: TextCheckInput): Promise<TextCheckR
       ...(nothing ? { skipped: nothing } : {}),
     },
     legibility: {
-      ok: tiny.length === 0 && smallNames.length === 0 && tooShort.length === 0,
+      // Only the floor and the hold time FAIL. A shot whose largest text is below name size may simply have no
+    // name in it — the `open` shot is a corner label and nothing else — and `docs/QA.md` makes *names* 48 px,
+    // not every string. Those are still listed as offenders so a reviewer sees them; failing them would
+    // teach people to pass --force, and then the gate protects nothing.
+    ok: tiny.length === 0 && tooShort.length === 0,
       measured: { strings, "name size": nameMin.toFixed(1), floor: floor.toFixed(1) },
       offenders: [...tiny, ...smallNames, ...tooShort].slice(0, 12),
       ...(nothing ? { skipped: nothing } : {}),

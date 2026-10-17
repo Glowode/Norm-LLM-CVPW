@@ -130,7 +130,11 @@ export default scene({
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.letterSpacing = `${f.layout.type(6)}px`;
-    g.fillText(word, centreX, f.layout.space.subtitleBand + f.layout.type(40));
+    // ABOVE the subtitle band, not below it. The band exists so that burned-in subtitles have somewhere to go
+    // without covering the picture; drawing a caption inside it puts the film's own type where a player will
+    // later draw its own. `text.safeArea` caught this at y=964 against a band at 920 — the kind of defect that
+    // looks right on the machine that made it and is wrong on a television.
+    g.fillText(word, centreX, f.layout.space.subtitleBand - f.layout.type(40));
     g.restore();
   },
 });
