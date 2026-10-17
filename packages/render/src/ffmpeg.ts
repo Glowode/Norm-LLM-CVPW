@@ -18,7 +18,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { run } from "./exec.js";
 
@@ -142,6 +142,8 @@ export interface EncodeOptions {
   encoderArgs: string[];
   /** Total frames expected. Verified against the file afterwards. */
   frames: number;
+  /** Explicit ffprobe path. Defaults to the binary sitting beside `ffmpeg`. */
+  ffprobe?: string;
   /** Tag colour as BT.709. Off only for an intentionally untagged intermediate. */
   tagColour?: boolean;
   timeoutMs?: number;
@@ -264,7 +266,15 @@ export async function encode(options: EncodeOptions): Promise<EncodeOutcome> {
     throw new EncodeError(`ffmpeg produced a zero-byte file at ${options.output}`, [options.ffmpeg, ...args]);
   }
 
-  const probed = await probeOutput(options.ffmpeg, options.output);
+// `ffprobe` is a DIFFERENT BINARY from `ffmpeg`, and this used to pass the ffmpeg path here. ffprobe's
+  // arguments mean nothing to ffmpeg, so every probe failed and the failure was swallowed into
+  // `probeFrames: null` — which meant the post-encode frame-count check never ran, for any render, while
+  // looking like it had. `render.frameCount` only caught truncated masters because the CLI probes separately.
+  //
+  // The sibling binary is the reliable default: every standard build ships ffprobe beside ffmpeg. An explicit
+  // override exists for a build that does not.
+  const ffprobe = options.ffprobe ?? join(dirname(options.ffmpeg), process.platform === "win32" ? "ffprobe.exe" : "ffprobe");
+  const probed = await probeOutput(ffprobe, options.output);
   return {
     output: options.output,
     bytes: info.size,
