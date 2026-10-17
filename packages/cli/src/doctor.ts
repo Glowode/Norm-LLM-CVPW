@@ -22,6 +22,7 @@ import { arch, cpus, freemem, platform, release, totalmem } from "node:os";
 
 import { log, resolveTool, run, toolVersion, EXIT, type ToolInfo } from "./shared.js";
 import { detectBrowser, headlessProbe } from "./browser.js";
+import { discoverBlender, selectBlender } from "./blender.js";
 
 export type Level = "REQUIRED" | "OPTIONAL";
 export type Status = "ok" | "missing" | "degraded";
@@ -304,6 +305,45 @@ export async function doctorProbe(options: DoctorOptions = {}): Promise<DoctorRe
     ...(packages.librosa ? {} : { hint: "python -m pip install librosa  (optional; try it if the overview plot shows an ambiguous tempo)" }),
   });
 
+  // --- blender ----------------------------------------------------------------------------------
+  // OPTIONAL, and reported even when absent: the bridge is phase 2, so a missing Blender must not make a machine
+  // look unready. But a machine that HAS one should say which build, because the version gate is 5.0 and a 4.x
+  // install is not merely older — it renders subtly differently, which no gate can see.
+  const blenderRoot = process.env["CVPW_BLENDER_ROOT"] ?? "D:\\Program Files\\Blender Foundation";
+  const blender = await discoverBlender(blenderRoot);
+  const existing = blender.installs.filter((install) => install.supported);
+  const chosen = selectBlender(blender.installs);
+  if (chosen) {
+    push({
+      group: "optional",
+      name: `blender ${chosen.version.banner.replace(/^Blender\s+/i, "")}`,
+      level: "OPTIONAL",
+      status: "ok",
+      detail: `${chosen.executable}${chosen.version.lts ? "  (LTS)" : ""}`,
+      cost: "",
+    });
+  } else if (blender.installs.length > 0) {
+    push({
+      group: "optional",
+      name: "blender: too old",
+      level: "OPTIONAL",
+      status: "degraded",
+      detail: `${blender.installs.length} install(s) found under ${blenderRoot}, highest is ${blender.installs[0]?.version.banner ?? "unknown"}`,
+      cost: "the Blender bridge requires 5.0 or newer; an older build renders subtly differently in ways no check can see",
+      hint: "install Blender 5.x, or set CVPW_BLENDER_ROOT to a directory that holds one",
+    });
+  } else {
+    push({
+      group: "optional",
+      name: "blender: not found",
+      level: "OPTIONAL",
+      status: "missing",
+      detail: blender.problems[0]?.message ?? `no blender.exe under ${blenderRoot}`,
+      cost: "the Blender bridge cannot be used on this machine; nothing else is affected, because no stage depends on it",
+      hint: "install Blender 5.x, or set CVPW_BLENDER_ROOT",
+    });
+  }
+  void existing;
   // --- disk -------------------------------------------------------------------------------------
   const freeGb = diskFreeGb(cwd);
   push({
