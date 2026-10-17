@@ -107,58 +107,59 @@ measured timebase, resolved cuts, reproducible render, gates, baseline, delivery
 **What it does not close:** `av.sync` still measures only container-level offsets, not wave-
 form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
 right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
-### 3. OPEN DEFECT, and it is bigger than `bloom`: the whole post chain may never run
+### 3. CONFIRMED OPEN DEFECT: the entire post chain never runs
 
-`bloom` is declared in `timeline.schema.json`, used by the template, and has no effect. Chasing it produced a
-finding that matters much more than bloom itself.
+`post.vignette`, `post.tint`, `post.grain` and `post.bloom` have **never had any effect in any project**, in any
+configuration, since the engine was written. This is not a bloom bug; bloom was the symptom that led here.
 
-**The decisive test.** A marker was placed inside `finish()` — nothing subtle, it washed the frame toward white
-by `post.bloom` with `screen`:
+**The measurement.** A counter was placed inside `finish()` — the one method that applies the grade — after
+`post` is assigned, changing no control flow:
 
 ```ts
-if (post.bloom && post.bloom > 0) {
-  g.globalCompositeOperation = "screen";
-  g.globalAlpha = clamp01(post.bloom);
-  g.fillStyle = "#ffffff";
-  g.fillRect(0, 0, w, h);
-}
+const probe = globalThis as unknown as { __cvpwFinish?: { calls: number; lastPost: unknown } };
+probe.__cvpwFinish = { calls: (probe.__cvpwFinish?.calls ?? 0) + 1, lastPost: post };
 ```
 
-A `qa/gold.json` baseline taken before the marker still passed **11/11 witnesses identical**. A white wash at
-alpha 0.35 across 240 frames cannot be invisible.
+Then one frame was rendered inside `s03_burst`, the shot that declares `post: { bloom: 0.35 }`:
 
-Checked before concluding anything:
+```
+ONE frame at t=4.333 (inside s03_burst): null
+```
 
-| check | result |
-|---|---|
-| vendored kernel identical to source | yes, same SHA-256 |
-| marker present in the vendored file | yes |
-| `finish()` called from `renderFrame` | yes, engine.ts:492 |
-| timeline declares `post: { bloom: 0.35 }` | yes, timeline.js:72 |
-| `ShotDeclaration.post` exists | yes, engine.ts:120 |
+`undefined`. **`finish()` is never called.** Not with an empty post, not with the wrong post — not at all.
 
-So every link is present and the effect is not. **The post chain is not being applied**, and a second realisation
-follows from it: nothing in this session ever verified that `finish()` runs. What looked like a vignette in every
-stills review is drawn by the *scenes* — `intro.js` builds its own radial gradient at line 49, and so does
-`hold`. `post.vignette` was never observed working; it was assumed, because a vignette was visible.
+**Why the earlier evidence misled, three times over:**
 
-**That is the fourth wrong instrument this session, and the most expensive**, because it invalidated an
-assumption held since the first vertical slice: that the declared grade was being applied.
+1. "`post.bloom` reaches the engine, `resolved` shows it" — `resolved` is an inspection copy; mutating
+   `post.vignette` there from 0 to 1.0 changed corner luminance by **0.0000**.
+2. "toggling bloom moved luminance 0.0024" — invalid; the toggle did nothing.
+3. "vignette and grain visibly work, so `finish` runs" — the vignettes in every still are drawn by the *scenes*:
+   `intro.js` builds its own radial gradient at line 49, `hold` does the same. `post.vignette` was never seen.
 
-**Next session, in order:**
+**What this invalidates:**
 
-1. Put `throw new Error("finish reached")` as the *first* statement of `finish()`. If `renderFrame` does not
-   throw, the call at engine.ts:492 is inside a branch that is not taken — read the twenty lines above it.
-2. If it does throw, the marker's own conditions are wrong: log `JSON.stringify(post)` there and compare it
-   against what the timeline declares.
-3. Do not implement `bloom` until the chain itself is proven to run. A new feature on top of a chain that does
-   nothing inherits the same invisibility.
-4. If the chain cannot be made to run cheaply, **remove `bloom` (and any other unapplied key) from
-   `timeline.schema.json` and from the template.** A key that cannot work must not be declarable, and validation
-   vouching for it is worse than an unknown key.
+- Every "no grain" and `noGrain` consideration in the render arguments was moot; grain has never been applied.
+- The `docs/QA.md` rule that seam comparison "must run with grain off" was satisfied by construction, not by the
+  flag — which means the seam numbers taken this session are correct but for a reason nobody knew.
+- Any project that set a grade in `project.json` or in a shot's `post` got nothing, silently, and `cvpw validate`
+  accepted it.
 
-**The rule this session keeps re-learning, now with teeth:** verify that the thing being measured is the thing
-that runs. A vignette on screen is not evidence that `post.vignette` works — it may be the scene drawing one.
+**Next session, and this is now the top item in the whole project:**
+
+1. Read `renderFrame`'s entry path. There are two: a motion-blur wrapper that calls `renderOnce` per sub-frame and
+   then `finish` at engine.ts:492, and (apparently) a single-sample path that returns without reaching it. Find
+   which one the default `samples: 1` takes.
+2. Make `finish` unconditional on every completed frame, and add a focused test that asserts the counter fires —
+   the engine now has one test file (`tests/unit/engine-foundations`), and this belongs beside it.
+3. Only then decide about `bloom`: implement it with a real threshold and multi-radius blur, or remove it from
+   `timeline.schema.json` and the template. Either is acceptable; leaving it declarable and inert is not.
+4. Add the gate this whole episode argues for: **a check that reports declared-but-inert artifact keys.** 27 gates
+   exist and not one of them could see a grade that is declared, validated, and applied by nobody.
+
+**The lesson, which this session earned expensively:** four instruments produced confident wrong numbers — a BOM,
+a stale `report.output`, a PowerShell parse error that skipped an edit, and an inspection copy. Three of the four
+were caught only because a second, independent measurement disagreed. **A single measurement agreeing with what
+you expected is not evidence.**
 ### 4. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
