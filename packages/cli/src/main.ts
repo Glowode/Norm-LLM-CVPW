@@ -1160,6 +1160,50 @@ register({
   },
 });
 
+// --- link ----------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "link",
+    summary: "Vendor the framework kernel into an existing project.",
+    usage: "cvpw link [--json]",
+    groups: [{ title: "flags", flags: [...COMMON_FLAGS] }],
+    examples: ["cvpw link"],
+    notes: [
+      "`vendor/kernel` is a build artifact of packages/kernel/dist, so a project keeps it out of version",
+      "control and regenerates it here. A clone, or a committed example, is one command from runnable.",
+      "It must be vendored rather than imported from the repository: a render serves the PROJECT directory,",
+      "so a relative import escaping that root cannot be loaded by the page.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { vendorKernel } = await import("./commands/new.js");
+    const result = await vendorKernel(root);
+    const summary = [
+      `vendored the kernel into ${result.kernel}`,
+      `  ${result.files} file(s), index hash ${result.hash}`,
+    ];
+    if (!args.json) {
+      log.info("");
+      for (const line of summary) log.info(line);
+      log.info("");
+    }
+    return {
+      ok: true,
+      command: "link",
+      schemaVersion: 1,
+      project: root,
+      artifactsWritten: [result.kernel],
+      result,
+      warnings: [],
+      errors: [],
+      summary,
+    };
+  },
+});
+
 // --- not-yet-implemented commands -----------------------------------------------------------------
 
 /**

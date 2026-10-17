@@ -53,7 +53,35 @@ render architecture rests on, and it is now a measured fact rather than a claim.
 
 ## Not done — and why
 
-### 1. Every command is implemented and the whole pipeline runs
+### 1. `examples/minimal/` is committed and verified from a fresh clone
+
+The template cannot regress silently now. `examples/minimal/` is a complete project — four shots, one style,
+five cues — and **sixteen files are committed**. Everything derived is not: `vendor/kernel` (a build artifact
+of `packages/kernel/dist`), `timeline.json`, `docs/STORYBOARD.md`, `render/`, `review/`, `qa/`.
+
+Verified by deleting exactly what git would not restore and running the documented sequence:
+
+```
+link  storyboard  validate  lint  check  stills  sheet  render      — 8/8
+                                                                      1,547,707-byte master
+```
+
+**A new `cvpw link` command makes that possible.** A clone has no `vendor/kernel`, so without it the example
+would be a text file rather than a project. `link` is the same vendoring `cvpw new` does, exposed for an
+existing project — which is what a clone, or a committed example, actually is.
+
+**One order-of-operations bug, found by running the README rather than writing it:** the first draft said
+`validate` before `storyboard`, and `validate` correctly fails because `timeline.json` does not exist yet. A
+newcomer's first command would have errored, and the error's advice — "run `cvpw storyboard` once the timebase
+exists" — is right, which means the documentation was the wrong thing, not the tool. Both the command order
+and a note explaining why are now in the example's README.
+
+The example ships **without audio**, deliberately: the song is the user's property. The consequence is visible
+rather than hidden — every cue is `source: manual` because there is no `analysis/audio.json` to settle
+against, and every time expression is a `cue(...)` instead of a `b()` or `HIT(...)`. That is exactly what the
+framework prescribes without a timebase, and it is what makes the example portable to a machine with nothing
+installed.
+### 2. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
 manifest in fourteen steps with no failures:
@@ -101,7 +129,7 @@ review becomes a delivery the last gate refuses to release without.
 the contract between them. Four times now, the producer and the contract disagreed and nothing noticed until a
 *consumer* was added. That is the argument for `validate` running the whole registry rather than checking only
 what a command happens to touch.
-### 2. The blank-frame bug is FOUND AND FIXED — and it was a template bug, not a framework one
+### 4. The blank-frame bug is FOUND AND FIXED — and it was a template bug, not a framework one
 
 All four template scenes now render. The bisection described in the previous revision of this file took
 about ten minutes once it was set up as a measurement instead of a guess, and the answer was in the frame:
@@ -142,7 +170,7 @@ four plausible PNGs. Nothing in the pipeline could see it, because every gate as
 that would have caught it, and it is not implemented yet — which is now the strongest argument for writing
 it next.
 
-### 3. `cvpw check` exists, with the gate that was missing
+### 5. `cvpw check` exists, with the gate that was missing
 
 Four checks are implemented and wired: `render.frameContent`, `scenes.registry`, `timeline.time`,
 `text.whitelist`. `stills` and `lint` are not, and `docs/QA.md`'s twenty-four ids remain mostly
@@ -175,7 +203,7 @@ times with no active shot) or `render.noDeadFrames` (which compares consecutive 
 neither asks whether a frame contains anything, and a shot drawing its subject in its own background colour
 satisfies both while being completely black.
 
-### 4. `cvpw render` produces an MP4, and `--workers` does not change it
+### 6. `cvpw render` produces an MP4, and `--workers` does not change it
 
 **Both halves of the framework's central claim now hold, verified by hash.**
 
@@ -228,7 +256,7 @@ What broke it open was printing the scene's own arithmetic *into the frame as te
 in all three sessions — at which point the arithmetic could not be the cause, and the only thing left was the
 instrument. When a measurement says something surprising, suspect the measurement before rewriting the code
 it accuses.
-### 5. The determinism guarantee is now a regression test, not a claim
+### 7. The determinism guarantee is now a regression test, not a claim
 
 `cvpw gold` takes a baseline at `qa/gold.json`; `cvpw check --only determinism.gold` compares the current
 render against it. Both are verified in **all three** directions, which is the only way to trust a gate:
@@ -261,7 +289,7 @@ disagreeing is precisely the failure `render.frameCount` exists to catch.
 `docs/PROGRESS.md`'s "not started" list is down to `@cvpw/runtime` and the phase-2 features. The framework
 now scaffolds a project, validates it, storyboards it, checks it, renders it reproducibly, and can prove the
 render has not changed.
-### 6. `@cvpw/runtime` is implemented — and it found a module-instance trap
+### 8. `@cvpw/runtime` is implemented — and it found a module-instance trap
 
 The last contract-only package now loads a project without a browser: it imports the scene and style modules
 with a **tripwire `document`**, resolves every `at`/`to` through the timebase, validates each shot's args the
@@ -299,7 +327,7 @@ registered, a missing timeline naming the command that writes it, a coverage gap
 error (a gap is still renderable), args rejected per shot, and style defaults filled the way the browser fills
 them.
 
-### 7. The engine draws, but nothing unit-tests it
+### 9. The engine draws, but nothing unit-tests it
 
 `packages/kernel/src/engine.ts` now draws every frame of a real film — four shots, 240 frames, three stills
 reviewed by eye, a contact sheet, a determinism baseline over eleven witnesses. **What it still has no unit
@@ -341,7 +369,7 @@ Also verified about the render path: the browser is discoverable, its WebGL rend
 client and the static server that `@cvpw/render` exports are implemented and exercised by these spikes;
 what remains unimplemented is the frame sink, the worker loop and the ffmpeg driver.
 
-### 8. Not started, as planned for phase 2
+### 10. Not started, as planned for phase 2
 
 Asset generation and chroma-key; lyric forced alignment (only the LRC path and the timing-table design
 exist); the WebGL2 post chain; the Blender bridge; the style registry's first real styles; the streaming
@@ -393,14 +421,11 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`examples/minimal/`** — a committed, working project. Everything in this repository is now
-   *demonstrated* but nothing is *checked in*, so the fastest way to regress the template is to change it and
-   never scaffold again.
-2. **Unit tests for the engine** — `renderFrame(t)` is proven end-to-end and by hash, but `engine.ts` has no
+1. **Unit tests for the engine** — `renderFrame(t)` is proven end-to-end and by hash, but `engine.ts` has no
    focused tests, so a change to the layer pool or the transition maths is caught only by re-rendering.
-3. **The gate ids `docs/QA.md` still lists** — `render.frameCount`, `av.sync`, `flash.rate`, `text.safeArea`,
+2. **The gate ids `docs/QA.md` still lists** — `render.frameCount`, `av.sync`, `flash.rate`, `text.safeArea`,
    `text.legibility`, `timeline.pacing`, `render.noDeadFrames`. The suite runs five of twenty-four.
-4. Then phase 2: the WebGL post chain, asset generation and chroma-key, lyric forced alignment, the Blender
+3. Then phase 2: the WebGL post chain, asset generation and chroma-key, lyric forced alignment, the Blender
    bridge.
 
 **What is proven now, end to end and by hash:** a project scaffolds itself from the template, analyses real

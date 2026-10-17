@@ -136,7 +136,20 @@ async function copyTree(from: string, to: string, templateRoot: string): Promise
  * `cvpw new` take thirty seconds and fail differently on a machine without a toolchain. The error names
  * the command instead.
  */
+/**
+ * Vendor the framework kernel into an existing project.
+ *
+ * `cvpw new` does this while scaffolding; this is the same operation for a project that already exists — one
+ * cloned from a repository, or an example committed without its build output. A project keeps `vendor/kernel`
+ * out of version control because it is a build artifact, and regenerates it here.
+ */
 export async function vendorKernel(root: string): Promise<{ kernel: string; files: number; hash: string }> {
+  if (!existsSync(join(root, "project.json"))) {
+    throw new ContractError(
+      `no project.json in ${root}; \`cvpw link\` vendors the kernel into an existing project\n` +
+        `  use \`cvpw new <dir>\` to create one`,
+    );
+  }
   const source = join(frameworkRoot(), "packages", "kernel");
   const dist = join(source, "dist");
   if (!existsSync(join(dist, "index.js"))) {

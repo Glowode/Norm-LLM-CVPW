@@ -1,0 +1,42 @@
+{
+  "$schema": "schemas/cues.schema.json",
+  "schemaVersion": 1,
+  "duration": 8,
+  "cues": [
+    {
+      "id": "open",
+      "t": 0,
+      "source": "manual",
+      "label": "the film starts",
+      "note": "Zero, because a film has to begin at frame 0: the timeline must cover the whole duration, and a gap at the head renders as a marked black frame. This example ships without audio, so every cue here is authored rather than measured — `source: manual` says so honestly instead of claiming an analysis that never ran."
+    },
+    {
+      "id": "grid_in",
+      "t": 2.496,
+      "source": "manual",
+      "label": "the grid arrives",
+      "note": "Bar 1 of a 120 BPM grid starting at 0.4907 s. Written as a number because this example has no analysis/audio.json; in a real project this would be `b(1,0)` and the music would decide the instant."
+    },
+    {
+      "id": "chorus",
+      "t": 4.0,
+      "source": "manual",
+      "label": "the chorus lands",
+      "note": "The loudest moment in the notional track. A real project would settle this with `cvpw cues` onto a measured impact rather than typing it."
+    },
+    {
+      "id": "burst_end",
+      "t": 6.5,
+      "source": "manual",
+      "label": "the burst has settled",
+      "note": "Deliberately equal to `settle`: the cut and the hold are one event here."
+    },
+    {
+      "id": "settle",
+      "t": 6.5,
+      "source": "manual",
+      "label": "the last image holds",
+      "note": "The last two seconds hold one image, which is the template's argument that a film should end on a decision rather than on a fade."
+    }
+  ]
+}
