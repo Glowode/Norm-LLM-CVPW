@@ -33,6 +33,7 @@ import {
 import { Timebase, TimeExpressionError, type Resolution } from "./time.js";
 import type { TimebaseData } from "./timebase.js";
 import { clamp01, hexToRgb, mixHex } from "./util.js";
+import { createGLPost, type GLPost } from "./glpost.js";
 
 /** One shot in the edit, after time resolution. */
 export interface ResolvedShot {
@@ -155,6 +156,8 @@ export class Engine {
   private readonly layers: LayerPoolEntry[] = [];
   private readonly shotProblems: ShotProblem[] = [];
   private readonly warnings: string[] = [];
+  /** The WebGL2 post chain, created on first use. Null until a frame actually needs it. */
+  private glPost: GLPost | null = null;
   private readonly resolutions = new Map<string, Resolution>();
   private resolved: ResolvedShot[] = [];
   private metaResult: EngineMeta | undefined;
@@ -757,7 +760,27 @@ export class Engine {
     // blurs them at several radii, which needs a WebGL chain and is why `docs/ARCHITECTURE.md` reserves that for
     // phase 2. What it does is make the declared value control something visible, which is the minimum a
     // contract owes its callers.
+    // WebGL2 first. A thresholded, multi-radius bloom is what the effect actually IS — Canvas2D cannot express it,
+    // which is why `docs/ARCHITECTURE.md` reserved this for phase 2. The chain owns its own canvas because a
+    // canvas that already has a 2D context cannot also hand out a WebGL2 one, so the result comes back here.
+    let glApplied = false;
     if (post.bloom && post.bloom > 0) {
+      this.glPost ??= createGLPost();
+      const post2d = this.glPost;
+      if (post2d.available && post2d.canvas) {
+        glApplied = post2d.apply(this.canvas, { bloom: post.bloom }, w, h);
+        if (glApplied) {
+          g.save();
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.globalCompositeOperation = "copy";
+          g.drawImage(post2d.canvas, 0, 0);
+          g.restore();
+        }
+      }
+    }
+    // Canvas2D fallback: cruder, and it stays because a machine that lost its GPU must still render the film. A
+    // post chain that fails closed would make the framework unrunnable for a cosmetic reason.
+    if (post.bloom && post.bloom > 0 && !glApplied) {
       const layer = this.acquire();
       const lg = layer.ctx;
       lg.setTransform(1, 0, 0, 1, 0, 0);

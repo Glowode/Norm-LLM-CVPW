@@ -137,3 +137,5 @@ export {
   type ShotDeclaration,
   type ShotProblem,
 } from "./engine.js";
+export { createGLPost } from "./glpost.js";
+export type { GLPost, GLPostParams } from "./glpost.js";
