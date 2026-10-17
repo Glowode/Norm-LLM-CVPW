@@ -107,38 +107,50 @@ measured timebase, resolved cuts, reproducible render, gates, baseline, delivery
 **What it does not close:** `av.sync` still measures only container-level offsets, not wave-
 form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
 right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
-### 3. `bloom` was declared, used, and silently ignored — half fixed, and the other half is an OPEN DEFECT
+### 3. OPEN DEFECT: `bloom` is declared in the schema and used by the template, and does nothing
 
-Found while surveying phase 2, and it is the same class of bug as the palette index that started this session:
-a key that validates, appears in the template, and does nothing.
+Found while surveying phase 2. Same class as the palette index that started this session: a key that validates,
+appears in the template, and has no effect.
 
 | | |
 |---|---|
 | `timeline.schema.json` declares | `bloom`, `grain`, `tint`, `vignette` |
-| the engine honoured | `grain`, `tint`, `vignette` |
+| the engine honours | `grain`, `tint`, `vignette` |
 | the example's timeline uses | `post: { bloom: 0.35 }` on `s03_burst` |
 
-The schema accepted it, so nothing warned. That is worse than an unknown key, because validation vouched for it.
+The schema accepts it, so nothing warns. **Worse than an unknown key, because validation vouched for it.**
 
-**Fixed and verified:** the engine now names any declared post key it does not honour, as a warning. Verified —
-`engine.warnings` is empty on the example, which means every post key in use is implemented.
+**What was measured, in order:**
 
-**Implemented but NOT verified:** a bloom pass (blurred copy of the frame screened over itself at the declared
-strength). `bloom: 0.35` does reach the engine — `window.engine.resolved` shows it on `s03_burst` — but the
-picture does not change: a `qa/gold.json` baseline taken *before* the change still passes with 11/11 witnesses
-identical, and it should have failed.
+1. `bloom: 0.35` reaches the engine — `window.engine.resolved` shows it on `s03_burst`.
+2. A bloom pass was written (blurred copy of the frame screened over itself). Toggled at runtime on one frame:
 
-So the bloom code is present and has no effect. The cause is not established. The candidates, cheapest first:
+   | `post.bloom` | mean luminance at frame 130 |
+   |---|---|
+   | 0 | 39.5906 |
+   | 0.35 | 39.5906 |
+   | 1.0 | 39.5930 |
 
-1. The pass throws inside `this.acquire()` and is swallowed by the surrounding error handling — the layer pool
-   reports leaks, so check `engine.warnings` for a layer message on a **rendered** film rather than a probed one.
-2. `g.filter` is ignored in this headless context, and `screen` at alpha 0.35 over an already-blurred copy of
-   itself is too subtle to move a 16×16-quantised hash — possible, and testable by setting `bloom: 1.0`.
-3. The vendored kernel in the project being measured was not the rebuilt one.
+   **0.0024 of movement at full strength.** The pass runs and contributes nothing.
+3. The pass was then removed and replaced with a warning for any declared post key the engine does not honour.
+   The warning **never fired**, even after rendering a frame inside the shot that declares `bloom` — with
+   `engine.warnings` confirmed to be the live array (`private readonly warnings` at engine.ts:157, and
+   `meta.warnings` is a spread copy at :257).
 
-**Do not treat bloom as working.** The next session should start by setting `bloom: 1.0` in a copy of the
-timeline and re-running the gold check: if it still passes, the pass is not running at all and candidate 1 is the
-answer.
+So the engine reaches `finish()` — vignette and grain visibly work — with a `post` object that contains
+`bloom`, and neither the drawing nor the warning inside that block takes effect. **Both changes were reverted
+rather than shipped**: a warning that has never been observed to fire is the same defect it was meant to catch.
+
+**Next session, in this order:**
+
+1. Put a `throw new Error("reached")` at the top of the declared-key loop and render a burst frame. If it does
+   not throw, `finish()` is not receiving the shot's post and the bug is upstream of it — check whether
+   `resolveSceneArgs`'s post merge survives into `ResolvedShot` at the moment `finish` reads it.
+2. If it does throw, `this.warnings` is not the array the page exposes; read `engine.meta.warnings` after a
+   render instead of `engine.warnings`.
+3. Only then decide whether to implement bloom properly (needs a threshold and a multi-radius blur — the WebGL2
+   chain phase 2 reserves) or to leave it unwarned and remove it from the schema. **Removing it from the schema is
+   the honest option if it cannot be implemented**, because a key that cannot work should not be declarable.
 ### 4. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
