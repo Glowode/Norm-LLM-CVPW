@@ -465,3 +465,54 @@ export async function adoptBlenderFrames(
   }
   return { frames, present: byFrame.size };
 }
+/**
+ * Encode adopted Blender frames with the framework's own encoder.
+ *
+ * `adoptBlenderFrames` renames to `f%06d.png`, which is exactly the pattern `@cvpw/render`'s `encode` takes,
+ * so this is a thin join rather than a second encoding path. That matters: a separate Blender-only encoder
+ * would drift from the one every gate has been calibrated against — the same fps, the same `-shortest` audio
+ * behaviour, the same degradation record when `h264_nvenc` is rejected.
+ *
+ * The frame count is checked against what will actually be encoded, because a rename that produced fewer files
+ * than claimed would otherwise reach ffmpeg as a short film rather than as an error.
+ */
+export async function encodeBlenderFrames(options: {
+  ffmpeg: string;
+  directory: string;
+  fps: number;
+  width: number;
+  height: number;
+  output: string;
+  audio?: string;
+  offsetSeconds?: number;
+  expectFrames: number;
+  /** Encoder arguments from `probeEncoders`; the caller probes once and reuses the answer. */
+  encoderArgs: string[];
+}): Promise<{ output: string; bytes: number; probeFrames: number | null; command: string[] }> {
+  const { encode } = await import("@cvpw/render");
+  const { readdir } = await import("node:fs/promises");
+  const entries = await readdir(options.directory).catch(() => [] as string[]);
+  const frames = entries.filter((entry) => /^f\d{6}\.png$/i.test(entry)).length;
+  if (frames !== options.expectFrames) {
+    throw new BlenderError(
+      `${frames} frame(s) named for the sink in ${options.directory}, expected ${options.expectFrames}. ` +
+        `Encoding this would produce a film of the wrong length, which no gate downstream could distinguish ` +
+        `from a deliberate one.`,
+      { exitCode: null, log: entries.filter((e) => e.startsWith("f")).slice(0, 12).join(", ") },
+    );
+  }
+
+  return encode({
+    ffmpeg: options.ffmpeg,
+    frameDir: options.directory,
+    pattern: "f%06d.png",
+    fps: options.fps,
+    width: options.width,
+    height: options.height,
+    output: options.output,
+    ...(options.audio ? { audio: options.audio } : {}),
+    ...(typeof options.offsetSeconds === "number" ? { offsetSeconds: options.offsetSeconds } : {}),
+    encoderArgs: options.encoderArgs,
+    frames: options.expectFrames,
+  });
+}
