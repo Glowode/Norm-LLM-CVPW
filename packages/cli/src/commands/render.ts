@@ -219,18 +219,27 @@ export async function runStills(options: StillsOptions): Promise<{ files: string
   return { files, manifestPath };
 }
 
+/**
+ * Which shots are on screen at `t`, from the DERIVED timeline.
+ *
+ * The first version parsed `Number(shot.at)` and fell back to the first shot. That is wrong for every project
+ * that uses a time expression — which is every project, because hand-typed times are what this framework
+ * exists to eliminate — so a sheet labelled `4.5s` as `s01_open` when it was actually the grid. A review
+ * artifact that names the wrong shot sends the fix to the wrong file, which is worse than naming none.
+ *
+ * `timeline.json` carries `resolved.t0/t1` precisely so this can be answered exactly, so read it.
+ */
 function activeShotIds(
-  shots: Array<{ id: string; at: string }>,
+  shots: Array<{ id: string; at: string; resolved?: { t0?: number; t1?: number } }>,
   t: number,
 ): string[] {
-  // Approximate: without resolving every expression, name the shot whose `at` is the latest at or before
-  // `t`. Good enough for a review manifest, and honest about being an approximation.
-  const numeric = shots
-    .map((shot) => ({ id: shot.id, value: Number(shot.at) }))
-    .filter((entry) => Number.isFinite(entry.value) && entry.value <= t);
-  if (!numeric.length) return shots.length ? [shots[0]?.id ?? ""].filter(Boolean) : [];
-  numeric.sort((a, b) => b.value - a.value);
-  return [numeric[0]?.id ?? ""].filter(Boolean);
+  return shots
+    .filter((shot) => {
+      const t0 = shot.resolved?.t0;
+      const t1 = shot.resolved?.t1;
+      return typeof t0 === "number" && typeof t1 === "number" && t >= t0 && t < t1;
+    })
+    .map((shot) => shot.id);
 }
 
 export interface RenderCommandOptions {

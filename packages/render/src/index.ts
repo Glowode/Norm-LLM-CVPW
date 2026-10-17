@@ -49,7 +49,7 @@ export {
   type RenderProgress,
   type RenderRequest,
 } from "./render.js";
-export { run, version, type RunResult } from "./exec.js";
+export { run, runBinary, version, type RunResult } from "./exec.js";
 export {
   DEFAULT_SCENE_THRESHOLDS,
   frameMetricsExpression,

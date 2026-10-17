@@ -53,69 +53,55 @@ render architecture rests on, and it is now a measured fact rather than a claim.
 
 ## Not done — and why
 
-### 1. The CLI runs, but only a third of its commands are implemented
+### 1. Every command is implemented and the whole pipeline runs
 
-`cvpw doctor`, `cvpw env` and `cvpw renderer` are implemented and work on this machine. The other
-seventeen are **registered with their full flag surface and their help text**, and exit with code 3 and
-an explicit "specified but not implemented" message rather than pretending to run. `cvpw --help` lists
-which is which.
-
-Verified on the reference machine:
+**All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
+manifest in fourteen steps with no failures:
 
 ```
-$ cvpw renderer
-browser   Microsoft Edge   C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
-renderer  ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 (0x00001C81) Direct3D11 vs_5_0 ps_5_0, D3D11)
-          [hardware]
-
-$ cvpw doctor --quick
-0 REQUIRED missing, 1 degraded
-encoder: libx264 (software)   # h264_nvenc probed and REJECTED: "Task finished with error code: -22"
+validate  lint  analyze  cues  lyrics  assets  storyboard
+stills  sheet  review  check  gold  handoff  deliver      — 14/14
 ```
 
-The hardware renderer is real, which is the one piece of the render path that can be confirmed without
-`@cvpw/render`. The encoder probe correctly refuses `h264_nvenc` — a different error text than the
-earlier `-40` (this one is `-22`, an invalid-argument failure inside the encoder) but the same verdict,
-reached the same way: by attempting an encode.
+That is the vertical slice the framework was built for: audio becomes a measured timebase, the timebase
+becomes cuts, the cuts become stills somebody looks at, the stills become a signed-off review, and the
+review becomes a delivery the last gate refuses to release without.
 
-**Consequence:** `cvpw validate`, `cvpw analyze`, `cvpw render` and the rest do not run. The analysis
-half of the slice is exercised directly through `python -m cvpw_py`, which is a real module with a real
-`main()` precisely so that this is possible. `packages/cli/src/{shared,args,validate,doctor,browser}.ts`
-are complete; what is missing is the command wiring, which is mechanical.
+**What each one does that is not obvious:**
 
-**Why it is not done:** the remaining commands need `templates/project/` to exist before `new` and
-`render` can be exercised end to end. `validate`, `analyze`, `lint` and `check` are not blocked by
-anything and are mechanical wiring over implementations that already work.
+| Command | The decision inside it |
+|---|---|
+| `analyze` | Spawns Python with UTF-8 forced and an ASCII temp path, because the reference host's console is code page 936 and a child that prints a CJK character dies with a message that looks like a script bug. |
+| `cues` | Refuses to move a `manual` cue. A human who placed a cut by ear has information the analysis does not, and a tool that "corrects" it is destroying the only authoritative cue in the file. |
+| `lyrics` | Writes timing always, text only when `lyricsLicence` is set. Timing is a fact about the recording; the words are somebody's property. |
+| `lint` | Scans `engine/` and `tools/` only. A finding in a file the framework did not write and cannot fix is noise, and a lint people stop reading protects nothing. |
+| `sheet` | Takes exactly the files the stills manifest lists. A directory is not a review set — the first version silently included a previous run's stills. |
+| `review` | Separates `ok` from `accepted`. A film can be fine and not yet signed off, and conflating them is how an unapproved cut gets published. |
+| `handoff` | Compares frame−1 with frame, and only for `pixel` seams. Measured the demo's `burst → hold` cut at 0.19 against a 0.03 threshold — which was my authoring error, not the film's, and the gate corrected it. |
+| `deliver` | Compares the frame count in the file against the count the sink wrote, because a truncated MP4 passes an existence check and plays for thirty seconds. |
 
-### 2. `@cvpw/render` is implemented except the CLI wiring; `@cvpw/runtime` is still contract-only
+**Writing them found four contract breaks that had been invisible because nothing consumed the artifacts:**
 
-`@cvpw/render` now has real implementations — `cdp.ts`, `server.ts`, `sink.ts`, `ffmpeg.ts`,
-`render.ts`, `exec.ts` — with **25 tests** covering the sink's ordering invariant, its refusals, its
-back-pressure and its chunk planner. What is missing is the `cvpw render` / `cvpw stills` command wiring.
+1. `analysis/audio.json` carried `grid` and `beat` on every onset that `audio.schema.json` rejected. The
+   fields are genuinely useful — they say which onsets sit on the grid — so the schema and
+   `docs/CONTRACTS.md` were extended rather than the data dropped. A4's point is that an unknown key is
+   *caught*, not that new keys are forbidden.
+2. `qa/report.json` could not be produced by any command, so `deliver` blocked forever on a file nothing could
+   write. `cvpw check --write-report` now emits the schema's shape, and the first attempt still failed three
+   times on field types (`observed` and `offenders` are strings, `run.only` is a block id, `profile` is an
+   enum) — which is the schema doing its job, one round at a time.
+3. `handoff.report.json` was missing its required `run` block. Writing `run.grain: "off"` as a string forced
+   the question of whether grain is a preference; it is not, because with grain on a seam comparison fails
+   whatever the film did.
+4. `render/report.json` wrote a `probe` key no schema allowed (fixed in the previous round), and
+   `lyrics.timing.json` carried `source`/`generator` where the schema wanted `count`. Every one of these was
+   found by `cvpw validate` rejecting a file the framework itself had just written.
 
-`@cvpw/runtime` still exports its interfaces with no behaviour. Nothing depends on it yet except the
-`validate` and `storyboard` commands that are not written.
-
-**Three real bugs were found by testing this, and each is worth recording because all three looked right:**
-
-1. **The sink's default extension was `"jpg"`.** `pathFor()` therefore reported a path that did not exist
-   for any non-JPEG capture. The extension is now derived from the first frame's encoding when the caller
-   does not name one — deciding it at construction cannot know what the frames will be.
-2. **Back-pressure deadlocked.** The first version waited for "the next commit", which is a different
-   event from the one that makes room: if the frame at `next` is never produced, no commit happens and the
-   producer blocks forever holding a frame it already rendered. The second version waited on `next`
-   advancing and was *worse*: every blocked writer wakes on the same advance, re-checks a buffer size that
-   has not shrunk, and `write(3)` into a sink with `lookahead: 3` never returned at all. The correct
-   condition is about the frame in hand — accept it when it is within `lookahead` of `next`, otherwise
-   wait until `next` reaches a value the producer computes up front, which cannot deadlock.
-3. **A blocked writer was not released on abort**, so a failed render could hang a worker forever waiting
-   for a frame that would never arrive.
-
-All three were caught by the sink tests rather than by a render, which is the point of testing the
-ordering invariant directly: it is a correctness property, and the failure it prevents — a film with one
-frame in the wrong place — is invisible without it.
-
-### 3. The blank-frame bug is FOUND AND FIXED — and it was a template bug, not a framework one
+**The pattern worth keeping:** each artifact is written by one command and read by another, and the schema is
+the contract between them. Four times now, the producer and the contract disagreed and nothing noticed until a
+*consumer* was added. That is the argument for `validate` running the whole registry rather than checking only
+what a command happens to touch.
+### 2. The blank-frame bug is FOUND AND FIXED — and it was a template bug, not a framework one
 
 All four template scenes now render. The bisection described in the previous revision of this file took
 about ten minutes once it was set up as a measurement instead of a guess, and the answer was in the frame:
@@ -156,7 +142,7 @@ four plausible PNGs. Nothing in the pipeline could see it, because every gate as
 that would have caught it, and it is not implemented yet — which is now the strongest argument for writing
 it next.
 
-### 4. `cvpw check` exists, with the gate that was missing
+### 3. `cvpw check` exists, with the gate that was missing
 
 Four checks are implemented and wired: `render.frameContent`, `scenes.registry`, `timeline.time`,
 `text.whitelist`. `stills` and `lint` are not, and `docs/QA.md`'s twenty-four ids remain mostly
@@ -189,7 +175,7 @@ times with no active shot) or `render.noDeadFrames` (which compares consecutive 
 neither asks whether a frame contains anything, and a shot drawing its subject in its own background colour
 satisfies both while being completely black.
 
-### 5. `cvpw render` produces an MP4, and `--workers` does not change it
+### 4. `cvpw render` produces an MP4, and `--workers` does not change it
 
 **Both halves of the framework's central claim now hold, verified by hash.**
 
@@ -242,7 +228,7 @@ What broke it open was printing the scene's own arithmetic *into the frame as te
 in all three sessions — at which point the arithmetic could not be the cause, and the only thing left was the
 instrument. When a measurement says something surprising, suspect the measurement before rewriting the code
 it accuses.
-### 6. The determinism guarantee is now a regression test, not a claim
+### 5. The determinism guarantee is now a regression test, not a claim
 
 `cvpw gold` takes a baseline at `qa/gold.json`; `cvpw check --only determinism.gold` compares the current
 render against it. Both are verified in **all three** directions, which is the only way to trust a gate:
@@ -275,12 +261,14 @@ disagreeing is precisely the failure `render.frameCount` exists to catch.
 `docs/PROGRESS.md`'s "not started" list is down to `@cvpw/runtime` and the phase-2 features. The framework
 now scaffolds a project, validates it, storyboards it, checks it, renders it reproducibly, and can prove the
 render has not changed.
-### 7. `@cvpw/runtime` is still contract-only
+### 6. `@cvpw/runtime` is still contract-only — the last unimplemented package
 
-### 8. The engine has never drawn a frame — but the renderer's core assumption is now MEASURED
+### 7. The engine draws, but nothing unit-tests it
 
-`packages/kernel/src/engine.ts` typechecks and its contract is specified, but no test renders through it.
-**The engine half of the vertical slice is unproven.**
+`packages/kernel/src/engine.ts` now draws every frame of a real film — four shots, 240 frames, three stills
+reviewed by eye, a contact sheet, a determinism baseline over eleven witnesses. **What it still has no unit
+tests**, which is the remaining gap: the evidence that it works is end-to-end, so a regression would be caught
+only by re-rendering a whole film.
 
 The *renderer's* riskiest assumption, however, is settled. An earlier revision of this file named "is a
 browser frame byte-reproducible?" as the highest-risk unproven claim. Four scripts under `scripts/` now
@@ -317,7 +305,7 @@ Also verified about the render path: the browser is discoverable, its WebGL rend
 client and the static server that `@cvpw/render` exports are implemented and exercised by these spikes;
 what remains unimplemented is the frame sink, the worker loop and the ffmpeg driver.
 
-### 9. Not started, as planned for phase 2
+### 8. Not started, as planned for phase 2
 
 Asset generation and chroma-key; lyric forced alignment (only the LRC path and the timing-table design
 exist); the WebGL2 post chain; the Blender bridge; the style registry's first real styles; the streaming
@@ -369,17 +357,22 @@ means the self-test signal must not depend on a package that might be absent.
 
 To continue, in this order:
 
-1. **`qa/gold.json` and `cvpw check --determinism`.** This is now unblocked and is the highest-value next
-   step: `--workers` is output-neutral and a render is reproducible, so a gold baseline is finally meaningful.
-   It is the gate that turns "reproducible" from a claim into a regression test.
-2. **The remaining CLI commands** — `analyze`, `cues`, `lyrics`, `lint`, `sheet`, `review`, `handoff`,
-   `deliver`, `skill` — over implementations that already exist or are specified.
-3. **Then `cvpw analyze` for a scaffolded project**, so the template's `cue(...)` expressions can become
-   `b()`, `h()` and `HIT(...)` and the framework's central claim — that a cut lands on a measured beat —
-   becomes demonstrable rather than merely implemented.
-4. **`@cvpw/runtime`** — the DOM-free loader, needed by `cvpw check`'s cross-artifact gates.
-5. Then `examples/minimal/`, and `gold.json` with its first baseline.
+1. **`@cvpw/runtime`** — the last contract-only package. It is the DOM-free loader `cvpw check` wants for
+   cross-artifact validation, and the thing a headless consumer (a CI job, a different agent platform) needs
+   in order to read a project without a browser.
+2. **`examples/minimal/`** — a committed, working project. Everything in this repository is now
+   *demonstrated* but nothing is *checked in*, so the fastest way to regress the template is to change it and
+   never scaffold again.
+3. **Unit tests for the engine** — `renderFrame(t)` is proven end-to-end and by hash, but `engine.ts` has no
+   focused tests, so a change to the layer pool or the transition maths is caught only by re-rendering.
+4. **The gate ids `docs/QA.md` still lists** — `render.frameCount`, `av.sync`, `flash.rate`, `text.safeArea`,
+   `text.legibility`, `timeline.pacing`, `render.noDeadFrames`. The suite runs five of twenty-four.
+5. Then phase 2: the WebGL post chain, asset generation and chroma-key, lyric forced alignment, the Blender
+   bridge.
 
-What is proven now: a project scaffolds itself, validates, storyboards, and renders four visually correct
-1920×1080 shots through headless Edge — amber core and rings, lit grid, particle burst, title card — with
-the kernel vendored so the project is self-contained and movable.
+**What is proven now, end to end and by hash:** a project scaffolds itself from the template, analyses real
+audio into a measured timebase, settles its cues onto that timebase, storyboards to a covered timeline,
+renders stills that a human reviews, gates itself, takes a determinism baseline, measures its seams, and
+delivers — fourteen steps, no failures. Rendering is reproducible and `--workers` does not change the film.
+Every artifact validates against its schema, including four whose producer and contract had disagreed for
+weeks because nothing consumed them.

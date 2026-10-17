@@ -100,7 +100,17 @@
         "properties": {
           "t": { "type": "number", "minimum": 0 },
           "strength": { "type": "number", "minimum": 0 },
-          "band": { "type": "string" }
+          "band": { "type": "string" },
+            "grid": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Seconds from this onset to the nearest beat, when a grid exists. Lets a consumer ask which onsets are ON the grid without re-deriving the nearest beat, which is the same question every cue-settling and lyric-alignment step asks."
+            },
+            "beat": {
+              "type": "integer",
+              "minimum": -1,
+              "description": "Index into beats[] of the nearest beat, or -1 when no grid exists. Recorded rather than recomputed so two consumers cannot disagree about which beat an onset belongs to."
+            }
         }
       }
     },

@@ -104,6 +104,84 @@ export async function run(
   });
 }
 
+/**
+ * Run a process and collect its **stdout as bytes**.
+ *
+ * `run` decodes stdout as UTF-8, which is correct for a tool that prints JSON and silently destructive for one
+ * that prints pixels: `rawvideo` output is not text, and decoding it replaces every invalid sequence with
+ * U+FFFD, so a byte-level comparison of the result measures the decoder rather than the image. The seam
+ * measurement in `cvpw handoff` needs real bytes, so this exists beside `run` rather than as an option on it —
+ * a caller has to choose, which is the point.
+ */
+export async function runBinary(
+  command: string,
+  args: readonly string[],
+  options: { cwd?: string; timeoutMs?: number; env?: Record<string, string> } = {},
+): Promise<{ code: number; stdout: Uint8Array; stderr: string; spawnFailed: boolean; error?: string }> {
+  return new Promise((resolvePromise) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, [...args], {
+        cwd: options.cwd,
+        windowsHide: true,
+        env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", ...options.env },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      resolvePromise({
+        code: -1,
+        stdout: new Uint8Array(),
+        stderr: "",
+        spawnFailed: true,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let stderr = "";
+    let settled = false;
+    const finish = (result: { code: number; stdout: Uint8Array; stderr: string; spawnFailed: boolean; error?: string }): void => {
+      if (settled) return;
+      settled = true;
+      resolvePromise(result);
+    };
+
+    const timer =
+      options.timeoutMs && options.timeoutMs > 0
+        ? setTimeout(() => {
+            try {
+              child.kill();
+            } catch {
+              /* already gone */
+            }
+            finish({
+              code: -1,
+              stdout: new Uint8Array(Buffer.concat(chunks)),
+              stderr,
+              spawnFailed: false,
+              error: `timed out after ${options.timeoutMs} ms`,
+            });
+          }, options.timeoutMs)
+        : undefined;
+
+    // No `setEncoding` on stdout: the whole point is to keep the bytes as they arrived.
+    child.stdout?.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", (error: Error) => {
+      if (timer) clearTimeout(timer);
+      finish({ code: -1, stdout: new Uint8Array(), stderr, spawnFailed: true, error: error.message });
+    });
+    child.on("close", (code: number | null) => {
+      if (timer) clearTimeout(timer);
+      finish({ code: code ?? -1, stdout: new Uint8Array(Buffer.concat(chunks)), stderr, spawnFailed: false });
+    });
+  });
+}
+
 /** The first non-empty line of a tool's `--version` output, or null. Never throws. */
 export async function version(command: string, args: readonly string[] = ["--version"]): Promise<string | null> {
   const result = await run(command, args, { timeoutMs: 15_000 });

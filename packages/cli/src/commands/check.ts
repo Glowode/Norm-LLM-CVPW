@@ -72,6 +72,10 @@ export interface CheckOutcome {
 
 export interface CheckReport {
   root: string;
+  /** The block range, when the run was restricted to one. */
+  range?: { from: number; to: number; label: string };
+  /** When the run began. Only `qa/report.json` may carry a run timestamp (docs/SPEC.md A3). */
+  startedAt: string;
   profile: string;
   outcomes: CheckOutcome[];
   /** Every frame sampled, so a reviewer can see the coverage rather than trust it. */
@@ -325,6 +329,7 @@ export async function runChecks(
   context: CheckContext,
   options: { only?: readonly string[] } = {},
 ): Promise<CheckReport> {
+  const startedAt = new Date().toISOString();
   const wanted = options.only?.filter((id) => id !== "") ?? [];
   const should = (id: string): boolean => wanted.length === 0 || wanted.some((w) => id === w || id.startsWith(`${w}.`) || w.startsWith(`${id.split(".")[0]}.`));
 
@@ -369,11 +374,57 @@ export async function runChecks(
   const errors = outcomes.reduce((sum, outcome) => sum + (outcome.ok ? 0 : outcome.offenders.length), 0);
   return {
     root: context.root,
-    profile: context.profile ?? "scenes",
+    startedAt,
+    ...(context.range ? { range: context.range } : {}),
+    profile: context.profile ?? "all",
     outcomes,
     frames,
     ok: outcomes.every((outcome) => outcome.ok),
     errors,
+  };
+}
+
+/**
+ * The `qa/report.json` artifact, in the shape `schemas/qa-report.schema.json` declares.
+ *
+ * Distinct from {@link checkEnvelope} on purpose: the envelope is for a human or an agent reading stdout, and
+ * this is for the next command. Conflating them is how `cvpw check --json > qa/report.json` produced a file
+ * that `cvpw deliver` demanded and `cvpw validate` rejected.
+ */
+export function qaReportDocument(report: CheckReport): Record<string, unknown> {
+  return {
+    $schema: "schemas/qa-report.schema.json",
+    schemaVersion: 1,
+    run: {
+      startedAt: report.startedAt,
+      // The schema restricts `profile` to all|render|deliver and `only` to a single block id, so neither may
+      // carry the list of check ids that ran — that is what `checks[]` is for.
+      profile: report.profile === "render" || report.profile === "deliver" ? report.profile : "all",
+      ...(report.range?.label ? { only: report.range.label } : {}),
+    },
+    checks: report.outcomes.map((outcome) => ({
+      id: outcome.id,
+      // `status` is the schema's field and `ok` is derived from it, not the other way round: a skipped check
+      // is not a pass, and a report that flattened the two would hide a gate that never ran.
+      status: outcome.skipped ? "skipped" : outcome.ok ? "pass" : "fail",
+      ok: outcome.ok,
+      ...(outcome.skipped ? { reason: outcome.skipped } : {}),
+      // `observed` is a STRING in the schema: one line a human reads, not a bag a tool has to parse.
+      ...(Object.keys(outcome.measured).length
+        ? {
+            observed: Object.entries(outcome.measured)
+              .map(([key, value]) => `${key}=${String(value)}`)
+              .join(", "),
+          }
+        : {}),
+      // Strings, not objects: the schema wants "concrete instances that justify the verdict", and a reader of
+      // a delivery report needs a line they can act on rather than a structure they have to unpack.
+      offenders: outcome.offenders.map(
+        (offender) => `${offender.where} — ${offender.detail} [${offender.code}]`,
+      ),
+    })),
+    ok: report.ok,
+    waived: [],
   };
 }
 

@@ -408,7 +408,11 @@ export function auditFile(input: AuditFileInput, options: AuditOptions = {}): Fi
   // Only inside `draw()` bodies, and only when assigned to something that reads like a time.
   // A blanket rule would fire on every radius and count in a scene, which is how linters get
   // switched off.
-  const timeish = /(^|[^A-Za-z0-9_])(at|time|start|end|t0|t1|dur|duration|offset|when|hit|cut|beat|bar)$/i;
+// `dur` and `duration` are deliberately absent. A duration is a *length*, not a moment, and the grammar
+  // expresses moments with `at`/`to` — so a timeline's `duration: 8` is the one number in the file that
+  // cannot be a time expression, because "the whole film" has no bar or cue to name. Flagging it produced a
+  // warning on every correctly-written project, which is how a lint teaches people to ignore it.
+  const timeish = /(^|[^A-Za-z0-9_])(at|time|start|end|t0|t1|offset|when|hit|cut|beat|bar)$/i;
   walk.simple(ast as unknown as Node, {
     Property(node: unknown) {
       const n = node as AnyNode;

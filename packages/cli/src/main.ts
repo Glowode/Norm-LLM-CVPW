@@ -500,6 +500,11 @@ register({
           },
           { name: "profile", type: "value", value: "<name>", doc: "all | render | deliver.", default: "all" },
           { name: "only-block", type: "value", value: "<id>", doc: "Restrict the frame checks to one block's range." },
+          {
+            name: "write-report",
+            type: "boolean",
+            doc: "Also write qa/report.json, the artifact `cvpw deliver` reads. Never truncates an existing one on failure.",
+          },
           ...COMMON_FLAGS,
         ],
       },
@@ -544,6 +549,19 @@ register({
       { root, fps: capture.fps, duration: capture.duration, ...(range ? { range } : {}), json: args.json },
       { only },
     );
+    if (getBool(args, "write-report")) {
+      const { qaReportDocument } = await import("./commands/check.js");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      await mkdir(join(root, "qa"), { recursive: true });
+      await writeFile(
+        join(root, "qa", "report.json"),
+        `${JSON.stringify(qaReportDocument(report), null, 2)}
+`,
+        "utf8",
+      );
+      log.info(`  wrote qa/report.json (${report.outcomes.length} check(s))`);
+    }
     const envelope = checkEnvelope(report);
     if (!args.json) {
       log.info("");
@@ -632,6 +650,516 @@ register({
   },
 });
 
+// --- lint ----------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "lint",
+    summary: "The fast static audit: banned APIs, encoding, absolute times, layout literals.",
+    usage: "cvpw lint [--only <rules>] [--warn-only] [--rules] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "only", type: "value", value: "<rules>", doc: "Comma-separated rule ids.", repeat: true },
+          { name: "warn-only", type: "boolean", doc: "Report everything as a warning, for a first pass on an old project." },
+          { name: "rules", type: "boolean", doc: "List the rule catalogue and exit." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw lint", "cvpw lint --rules", "cvpw lint --warn-only"],
+    notes: [
+      "Shares its rule set with `cvpw check` by calling the same audit, so the two cannot disagree.",
+      "Scans engine/ and tools/ only: a finding in a file the framework did not write and cannot fix is",
+      "noise, and a lint people stop reading protects nothing.",
+    ],
+  },
+  async run(args, root) {
+    const { lintProject, lintEnvelope, ruleCatalogue } = await import("./commands/lint.js");
+    if (getBool(args, "rules")) {
+      const catalogue = ruleCatalogue();
+      if (!args.json) {
+        log.info("");
+        for (const rule of catalogue) log.info(`  ${rule.severity === "error" ? "error" : "warn "}  ${rule.id}`);
+        log.info("");
+        for (const rule of catalogue) log.info(`    ${rule.description}`);
+        log.info("");
+      }
+      return {
+        ok: true,
+        command: "lint",
+        schemaVersion: 1,
+        result: { rules: catalogue },
+        warnings: [],
+        errors: [],
+        summary: catalogue.map((rule) => `${rule.severity} ${rule.id}`),
+      };
+    }
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const only = getList(args, "only").flatMap((entry) => entry.split(",")).map((s) => s.trim()).filter(Boolean);
+    const result = await lintProject({
+      root,
+      ...(only.length ? { only } : {}),
+      warnOnly: getBool(args, "warn-only"),
+    });
+    const envelope = lintEnvelope(result, root);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- analyze -------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "analyze",
+    summary: "Audio to a measured timebase: beats, bars, sections, cues, and an overview plot.",
+    usage: "cvpw analyze [--audio <file>] [--fps <n>] [--bpm <n>] [--first-beat <s>] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "audio", type: "value", value: "<file>", doc: "Override project.json::audio.file." },
+          { name: "fps", type: "value", value: "<n>", doc: "Output frame rate for the feature envelope." },
+          { name: "bpm", type: "value", value: "<n>", doc: "Force a tempo, to correct an octave error." },
+          { name: "first-beat", type: "value", value: "<s>", doc: "Force the grid's phase." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw analyze", "cvpw analyze --bpm 119.7 --first-beat 0.02"],
+    notes: [
+      "The analysis is required, not a convenience: without beats[] and bars[], every b() and h() cannot",
+      "resolve and the film collapses to hand-timed numbers.",
+      "It NEVER rewrites the source audio (SPEC P6). It reads the file and writes only into analysis/.",
+      "An octave error in the tempo is obvious on analysis/overview.png and invisible in the JSON.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { analyze, analyzeEnvelope } = await import("./commands/analyze.js");
+    const audio = typeof args.flags.get("audio") === "string" ? String(args.flags.get("audio")) : undefined;
+    log.info("");
+    const result = await analyze({
+      root,
+      ...(audio ? { audio } : {}),
+      ...(getString(args, "fps") !== undefined ? { fps: getNumber(args, "fps") } : {}),
+      ...(getString(args, "bpm") !== undefined ? { bpm: getNumber(args, "bpm") } : {}),
+      ...(getString(args, "first-beat") !== undefined ? { firstBeat: getNumber(args, "first-beat") } : {}),
+      ...(args.json ? {} : { onProgress: (line: string) => log.info(line) }),
+    });
+    const envelope = analyzeEnvelope(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- skill ---------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "skill",
+    summary: "Install the agent skill bundles into a platform.",
+    usage: "cvpw skill install --target <claude|dsh|generic> [--dest <dir>] [--only <names>] [--force] [--json]",
+    groups: [
+      {
+        title: "subcommands",
+        flags: [{ name: "install", type: "boolean", doc: "Copy the bundles. The only subcommand today." }],
+      },
+      {
+        title: "flags",
+        flags: [
+          { name: "target", type: "value", value: "<claude|dsh|generic>", doc: "Platform layout. Required." },
+          { name: "dest", type: "value", value: "<dir>", doc: "Destination for --target generic." },
+          { name: "only", type: "value", value: "<names>", doc: "Install only these bundles.", repeat: true },
+          { name: "force", type: "boolean", doc: "Replace an existing installation." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: [
+      "cvpw skill install --target claude",
+      "cvpw skill install --target generic --dest ./skills",
+    ],
+    notes: [
+      "Copies rather than symlinks: a link into the framework makes the skill depend on a checkout the",
+      "platform may not be able to read, which is the opposite of portable.",
+      "Refuses to overwrite an existing bundle without --force, because replacing silently would discard a",
+      "local edit somebody made.",
+    ],
+  },
+  async run(args) {
+    const sub = args.positionals[0];
+    if (sub !== "install") {
+      throw new UsageError(
+        sub ? `unknown skill subcommand: ${sub}` : "cvpw skill needs a subcommand",
+        "the only subcommand is `install`",
+      );
+    }
+    const target = args.flags.get("target");
+    if (typeof target !== "string") throw new UsageError("cvpw skill install needs --target", "claude | dsh | generic");
+    if (!["claude", "dsh", "generic"].includes(target)) {
+      throw new UsageError(`unknown --target ${target}`, "claude | dsh | generic");
+    }
+    const dest = typeof args.flags.get("dest") === "string" ? String(args.flags.get("dest")) : undefined;
+    const only = getList(args, "only").flatMap((entry) => entry.split(",")).map((s) => s.trim()).filter(Boolean);
+
+    const { installSkills } = await import("./commands/skill.js");
+    const result = await installSkills({
+      target: target as "claude" | "dsh" | "generic",
+      ...(dest ? { dest } : {}),
+      ...(only.length ? { only } : {}),
+      force: getBool(args, "force"),
+    });
+
+    const summary = [
+      `installed ${result.installed.length} skill bundle(s) into ${result.root}`,
+      ...result.installed.map((skill) => `  ${skill.name}  (${skill.files} file(s))`),
+      "",
+      "read in this order:",
+      ...result.readingOrder.map((line) => `  ${line}`),
+    ];
+    if (!args.json) {
+      log.info("");
+      for (const line of summary) log.info(line);
+      log.info("");
+    }
+    return {
+      ok: true,
+      command: "skill",
+      schemaVersion: 1,
+      artifactsWritten: result.installed.map((skill) => skill.to),
+      result,
+      warnings: [],
+      errors: [],
+      summary,
+    };
+  },
+});
+
+// --- cues ----------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "cues",
+    summary: "Settle cue guesses onto measured onsets. Never overwrites a manual cue.",
+    usage: "cvpw cues [--tolerance <s>] [--dry-run] [--force] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "tolerance", type: "value", value: "<s>", doc: "How close an event must be, in seconds.", default: "0.04" },
+          { name: "dry-run", type: "boolean", doc: "Report what would move, write nothing." },
+          { name: "force", type: "boolean", doc: "Also move `manual` cues. Announced, because it destroys a human decision." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw cues --dry-run", "cvpw cues", "cvpw cues --tolerance 0.08"],
+    notes: [
+      "A `manual` cue is refused, not skipped quietly: a human who placed a cut by ear has information the",
+      "analysis does not, and a tool that corrects it is destroying the only authoritative cue in the file.",
+      "A cue with no measured evidence nearby stays `initial`, because relabelling a guess as measured makes",
+      "the `cues.settled` gate stop asking.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { settleCues, cuesEnvelope } = await import("./commands/cues.js");
+    const dryRun = getBool(args, "dry-run");
+    const result = await settleCues({
+      root,
+      ...(getString(args, "tolerance") !== undefined ? { toleranceSec: getNumber(args, "tolerance") } : {}),
+      force: getBool(args, "force"),
+      dryRun,
+    });
+    const envelope = cuesEnvelope(result, dryRun);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- lyrics --------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "lyrics",
+    summary: "LRC or plain text to lyric timing — and text, only if it is licensed.",
+    usage: "cvpw lyrics [--input <file>] [--force] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "input", type: "value", value: "<file>", doc: "LRC or plain text. Defaults to the single file in lyrics/." },
+          { name: "force", type: "boolean", doc: "Replace existing lyric timing." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw lyrics", "cvpw lyrics --input lyrics/song.lrc", "cvpw lyrics --force"],
+    notes: [
+      "Timing is always written; TEXT only when project.json::lyricsLicence is set (SPEC T7). Timing is a",
+      "fact about the recording; the words are somebody's property.",
+      "Plain text has no timestamps, so lines are spread across DETECTED vocal activity and marked",
+      "`estimated`. With no detected vocal the command refuses rather than inventing an even spread.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { buildLyrics, lyricsEnvelope } = await import("./commands/lyrics.js");
+    const input = typeof args.flags.get("input") === "string" ? String(args.flags.get("input")) : undefined;
+    const result = await buildLyrics({ root, ...(input ? { input } : {}), force: getBool(args, "force") });
+    const envelope = lyricsEnvelope(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- sheet ---------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "sheet",
+    summary: "Build a numbered contact sheet from review/stills.",
+    usage: "cvpw sheet [--from <dir>] [--out <file>] [--columns <n>] [--cell-width <px>] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "from", type: "value", value: "<dir>", doc: "Stills directory.", default: "review/stills" },
+          { name: "out", type: "value", value: "<file>", doc: "Output PNG.", default: "review/sheet.png" },
+          { name: "columns", type: "value", value: "<n>", doc: "Cells across.", default: "4" },
+          { name: "cell-width", type: "value", value: "<px>", doc: "Cell width in pixels.", default: "480" },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw sheet", "cvpw sheet --columns 5 --cell-width 384"],
+    notes: [
+      "Made from stills, not instead of them: run `cvpw stills` first.",
+      "Writes review/sheet.json numbering every cell with its time and shot ids, because a contact sheet",
+      "without an index shows you that something is wrong and refuses to tell you where.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { buildSheet, sheetEnvelope } = await import("./commands/sheet.js");
+    const from = typeof args.flags.get("from") === "string" ? String(args.flags.get("from")) : undefined;
+    const out = typeof args.flags.get("out") === "string" ? String(args.flags.get("out")) : undefined;
+    const result = await buildSheet({
+      root,
+      ...(from ? { from } : {}),
+      ...(out ? { out } : {}),
+      ...(getString(args, "columns") !== undefined ? { columns: getNumber(args, "columns") } : {}),
+      ...(getString(args, "cell-width") !== undefined ? { cellWidth: getNumber(args, "cell-width") } : {}),
+    });
+    const envelope = sheetEnvelope(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- review --------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "review",
+    summary: "Record that somebody looked, what they saw, and whether it is signed off.",
+    usage: "cvpw review [--finding <still|issue|action|verdict>] [--looked <file>] [--note <text>] [--accept] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          {
+            name: "finding",
+            type: "value",
+            value: "<still|issue|action|verdict>",
+            doc: "One finding as four pipe-separated fields; verdict is ok, fix or hold.",
+            repeat: true,
+          },
+          { name: "looked", type: "value", value: "<file>", doc: "A still that was actually opened.", repeat: true },
+          { name: "note", type: "value", value: "<text>", doc: "Free text about the pass." },
+          { name: "accept", type: "boolean", doc: "Sign off. Only takes effect when the verdict is ok." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: [
+      "cvpw review --looked t0_500.png --looked t4_500.png --accept",
+      "cvpw review --finding \"t2_000.png|grid reads as a mesh, not a grid|raised density 7->9|fix\"",
+    ],
+    notes: [
+      "`--looked` is the point: a review whose manifest does not say what was seen is indistinguishable",
+      "from one that never happened (SPEC V1-V3).",
+      "`accepted` is not `ok`. A film can be fine and not yet signed off, and conflating them is how an",
+      "unapproved cut gets published.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { recordReview, reviewEnvelope } = await import("./commands/review.js");
+    const findings = getList(args, "finding").map((raw) => {
+      const [still, issue, action, verdict] = raw.split("|").map((part) => part.trim());
+      if (!still || !issue || !action || !verdict) {
+        throw new UsageError(
+          `malformed --finding: ${raw}`,
+          "four pipe-separated fields: <still>|<issue>|<action>|<ok|fix|hold>",
+        );
+      }
+      if (!["ok", "fix", "hold"].includes(verdict)) {
+        throw new UsageError(`unknown verdict "${verdict}" in --finding`, "ok | fix | hold");
+      }
+      return { still, issue, action, verdict: verdict as "ok" | "fix" | "hold" };
+    });
+    const looked = getList(args, "looked");
+    const note = typeof args.flags.get("note") === "string" ? String(args.flags.get("note")) : undefined;
+    const result = await recordReview({
+      root,
+      findings,
+      looked,
+      ...(note ? { note } : {}),
+      accept: getBool(args, "accept"),
+    });
+    const envelope = reviewEnvelope(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- handoff -------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "handoff",
+    summary: "Measure the pixel seams declared in handoff.json.",
+    usage: "cvpw handoff [--only <ids>] [--json]",
+    groups: [{ title: "flags", flags: [{ name: "only", type: "value", value: "<ids>", doc: "Seam ids.", repeat: true }, ...COMMON_FLAGS] }],
+    examples: ["cvpw handoff", "cvpw handoff --only s02-s03"],
+    notes: [
+      "`handoff.json` is AUTHORED, never written here: which shots meet and which class each seam is are",
+      "editorial decisions, and a tool that inferred them would be wrong exactly where nobody checked.",
+      "Grain is off for the measurement, because with it on you measure the noise generator.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { measureHandoffs, handoffEnvelope } = await import("./commands/handoff.js");
+    const only = getList(args, "only").flatMap((entry) => entry.split(",")).map((s) => s.trim()).filter(Boolean);
+    const result = await measureHandoffs({ root, ...(only.length ? { only } : {}) });
+    const envelope = handoffEnvelope(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- deliver -------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "deliver",
+    summary: "The last gate: master, report, accepted review, licences, variants.",
+    usage: "cvpw deliver [--variants <names>] [--force] [--json]",
+    groups: [
+      {
+        title: "flags",
+        flags: [
+          { name: "variants", type: "value", value: "<names>", doc: "Variant names to include.", repeat: true },
+          { name: "force", type: "boolean", doc: "Write delivery.json even when blocked, for diagnosis." },
+          ...COMMON_FLAGS,
+        ],
+      },
+    ],
+    examples: ["cvpw deliver", "cvpw deliver --variants vertical"],
+    notes: [
+      "A blocker is a stop, not a warning. Each one has shipped a bad film somewhere.",
+      "A truncated MP4 passes an existence check and plays for thirty seconds, so the frame count in the",
+      "file is compared against the count the sink wrote.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { deliver, deliverEnvelope } = await import("./commands/deliver.js");
+    const variants = getList(args, "variants").flatMap((entry) => entry.split(",")).map((s) => s.trim()).filter(Boolean);
+    const result = await deliver({ root, ...(variants.length ? { variants } : {}), force: getBool(args, "force") });
+    const envelope = deliverEnvelope(result);
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
+// --- assets --------------------------------------------------------------------------------------
+
+register({
+  implemented: true,
+  help: {
+    name: "assets",
+    summary: "Validate assets/manifest.json: present, hash-matched, licensed, sourced.",
+    usage: "cvpw assets [--json]",
+    groups: [{ title: "flags", flags: [...COMMON_FLAGS] }],
+    examples: ["cvpw assets", "cvpw assets --json"],
+    notes: [
+      "Asset GENERATION is phase 2 and is not here. This is the gate.",
+      "A project with no assets is valid: the reference template is entirely procedural, so a missing",
+      "manifest reports 'nothing to validate' rather than failing.",
+      "A licence is required because an unlicensed asset has to be replaced at delivery; a source because",
+      "without one the asset cannot be regenerated and next month's render differs for no recorded reason.",
+    ],
+  },
+  async run(args, root) {
+    if (!root) throw new ContractError("no project.json found above the working directory");
+    const { validateAssets, assetsEnvelope } = await import("./commands/assets.js");
+    const envelope = assetsEnvelope(await validateAssets(root));
+    if (!args.json) {
+      log.info("");
+      for (const line of envelope.summary ?? []) log.info(line);
+      log.info("");
+    }
+    return envelope;
+  },
+});
+
 // --- not-yet-implemented commands -----------------------------------------------------------------
 
 /**
@@ -668,74 +1196,26 @@ function stub(
 
 
 
-stub(
-  "analyze",
-  "Audio to a timebase: analysis/audio.json, envelope.json/.f32, overview.png.",
-  "cvpw analyze [--audio <file>] [--bpm-range LO,HI] [--json]",
-  "docs/WORKFLOW.md stage 2, docs/CONTRACTS.md §4",
-  [
-    { name: "audio", type: "value", value: "<file>", doc: "Defaults to project.json::audio.file." },
-    { name: "bpm-range", type: "value", value: "LO,HI", doc: "Constrain the tempo search, for an octave error." },
-    { name: "fps", type: "value", value: "<n>", doc: "Envelope frame rate. Defaults to project.json::output.fps." },
-  ],
-  [
-    "The analysis itself works today: `python -m cvpw_py analyze --audio <f> --out <dir>`.",
-    "It is verified against a synthetic ground-truth fixture — see docs/PROGRESS.md.",
-  ],
-);
-
-stub("cues", "Settle cue guesses onto measured onsets. Never overwrites a manual cue.", "cvpw cues [--json]", "docs/WORKFLOW.md stage 2");
-stub("lyrics", "LRC or plain text to lyric timing.", "cvpw lyrics [--join <file>] [--json]", "skills/cvpw-timing/references/02-lyric-timing.md");
-
-stub("assets", "Validate assets/manifest.json. Generation is phase 2.", "cvpw assets [--reindex] [--json]", "docs/WORKFLOW.md stage 4");
-
-
-
-stub(
-  "sheet",
-  "Contact sheets: by interval, or one frame per cue.",
-  "cvpw sheet [--from <t> --to <t> --every <s> | --cues] [--cols <n>] [--out <file>] [--json]",
-  "docs/WORKFLOW.md stage 6",
-  [
-    { name: "cues", type: "boolean", doc: "One frame per cue. The single most useful review image." },
-    { name: "from", type: "value", value: "<t>", doc: "Start time." },
-    { name: "to", type: "value", value: "<t>", doc: "End time." },
-    { name: "every", type: "value", value: "<s>", doc: "Interval between frames." },
-    { name: "cols", type: "value", value: "<n>", doc: "Sheet columns.", default: 5 },
-    { name: "out", type: "value", value: "<file>", doc: "Output image.", default: "review/sheet.jpg" },
-  ],
-);
-
-stub(
-  "review",
-  "Contact sheets over a rendered master, plus the review manifest.",
-  "cvpw review --mp4 <file> [--step <s>] [--out <dir>] [--json]",
-  "docs/QA.md §4",
-  [
-    { name: "mp4", type: "value", value: "<file>", doc: "The rendered master to review." },
-    { name: "step", type: "value", value: "<s>", doc: "Seconds between frames.", default: 1.8 },
-  ],
-);
 
 
 
 
 
-stub(
-  "lint",
-  "Static audit: banned APIs (AST-based), encoding, absolute times, layout literals, text whitelist.",
-  "cvpw lint [paths...] [--strict] [--json]",
-  "packages/audit/src/index.ts",
-  [{ name: "strict", type: "boolean", doc: "Treat absolute-time and layout warnings as errors." }],
-  [
-    "The analyzer itself works today: packages/audit/src/index.ts, 22 tests covering the evasions",
-    "a textual scan misses (const r = Math.random; r(), globalThis.Date.now()).",
-  ],
-);
 
-stub("handoff", "Seam A|REF|B strips and numeric grades into handoff.report.json.", "cvpw handoff [--list <ids>] [--json]", "docs/CONTRACTS.md §9");
-stub("deliver", "Final checks, variants, delivery list.", "cvpw deliver [--variants <list>] [--json]", "docs/QA.md §6");
-stub("skill", "Install a skill bundle into an agent platform.", "cvpw skill install --target <claude|dsh|generic> [--json]", "docs/EXTENDING.md recipe 8");
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // --- main -----------------------------------------------------------------------------------------
 

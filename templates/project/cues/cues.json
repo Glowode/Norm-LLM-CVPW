@@ -7,35 +7,35 @@
     {
       "id": "open",
       "t": 0.0,
-      "source": "manual",
+      "source": "initial",
       "label": "the film starts",
-      "note": "Not a musical moment: the timeline has to begin somewhere, and beginning at 0 is honest about that."
+      "note": "Not a musical moment: the timeline has to begin somewhere, and beginning at 0 is honest about that. Ships as `initial` because a template cue time is a guess; `cvpw cues` settles it once there is audio."
     },
     {
       "id": "grid_in",
       "t": 1.02,
-      "source": "manual",
+      "source": "initial",
       "label": "the grid arrives",
       "note": "Placeholder. Once `cvpw analyze` has run against real audio, run `cvpw cues` to settle this onto a measured onset and its source becomes `measured`."
     },
     {
       "id": "chorus",
       "t": 4.02,
-      "source": "manual",
+      "source": "initial",
       "label": "the chorus lands",
       "note": "The one moment the film is built around. If this is wrong, every shot after it is wrong too."
     },
     {
       "id": "burst_end",
       "t": 6.52,
-      "source": "manual",
+      "source": "initial",
       "label": "the burst has settled",
       "note": "The end of the loudest shot. Equal to `settle` today, and named separately because they are two different decisions: one ends a shot, the other begins the last one."
     },
     {
       "id": "settle",
       "t": 6.52,
-      "source": "manual",
+      "source": "initial",
       "label": "the last image holds"
     }
   ]
