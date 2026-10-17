@@ -81,7 +81,33 @@ rather than hidden — every cue is `source: manual` because there is no `analys
 against, and every time expression is a `cue(...)` instead of a `b()` or `HIT(...)`. That is exactly what the
 framework prescribes without a timebase, and it is what makes the example portable to a machine with nothing
 installed.
-### 2. Every command is implemented and the whole pipeline runs
+### 2. The full pipeline has now been run end to end WITH AUDIO
+
+Every earlier render in this project was silent, because the examples ship without music — and that is exactly
+why the `apad` hang survived so long. It has now been run properly, on a project with a real track:
+
+```
+storyboard   4 shots, 8.000 s, no problems
+render       240 frames with audio, 40.1 s wall, 81.5 ms/frame average, 1.62 MiB, libx264
+frameCount   expected 240, inFile 240
+av.sync      start delta 0.0 ms; video 8.000 s, audio 8.000 s
+gold         11 frame witnesses
+deliver      READY TO DELIVER — render/master.mp4, 240 frames
+```
+
+The container is correct: `h264` video and `aac` audio, both starting at 0.000000, both exactly 8.000000 s.
+
+**No hang.** The previous session killed a 240-frame render after ten minutes and was left with a 49 MB file
+that had no `moov` atom. The fix was one flag — `-shortest` beside `-apad` — and the same render now takes
+41 seconds.
+
+**What this closes:** the last path in the framework that had never been exercised end to end. Audio in,
+measured timebase, resolved cuts, reproducible render, gates, baseline, delivery — with music.
+
+**What it does not close:** `av.sync` still measures only container-level offsets, not wave-
+form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
+right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
+### 3. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
 manifest in fourteen steps with no failures:

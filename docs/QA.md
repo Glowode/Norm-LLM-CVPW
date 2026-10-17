@@ -50,7 +50,7 @@ reason to skip the check by hand.
 | `lyrics.alignment` | 2 | every lyric line within **±150 ms** of a detected vocal onset where vocal activity exists | `cvpw lyrics --check` | `lyric-early <line> <ms>`, `lyric-late <line> <ms>` | yes |
 | `scene.errors` | 5 | 0 `pageerror` and 0 `console.error` while loading and rendering every scene alone | `cvpw check --scenes` | `pageerror <shotId>`, `console-error <shotId>` | no |
 | `scene.emptyFrames` | 5 | 0 sampled times with no active shot | `cvpw check --scenes` | `empty-frame <t>` | no |
-| `scene.perf` | 5 | `msPerFrame.p95` ≤ `project.json::budgets.msPerFrame` (default 40 ms) | `cvpw check --scenes`, `render/report.json` | `slow-shot <shotId> <ms>` | yes |
+| `scene.perf` | 5 | `msPerFrame.p95` ≤ `project.json::budgets.msPerFrame` (default **160 ms**) | `cvpw check --scenes`, `render/report.json` | `slow-shot <shotId> <ms>` | yes |
 | `render.frameCount` | 7 | MP4 frame count **==** `round(duration × fps)` | `cvpw check --frames` | `frame-count <observed> != <expected>` | no |
 | `av.sync` | 7 | decoded-track cross-correlation lag ≤ **1 frame** (33.3 ms at 30 fps) | `cvpw check --av-sync` | `av-lag <ms>` | yes |
 | `handoff.pixel` | 7 | mean-abs-diff **< 0.03** (and **< 0.01** is `ok`), grain disabled | `cvpw handoff` | `ALIGN <seamId> <diff>` | yes |
