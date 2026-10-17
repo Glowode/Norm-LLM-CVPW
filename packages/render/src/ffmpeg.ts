@@ -208,9 +208,15 @@ export async function encode(options: EncodeOptions): Promise<EncodeOutcome> {
   }
 
   if (options.audio) {
-    // `apad` is what lets the audio be shorter than the picture without the muxer truncating the film.
-    // It is the honest alternative to padding the source file.
-    args.push("-af", "apad", "-c:a", "aac", "-b:a", "256k");
+// `apad` lets the audio be SHORTER than the picture without the muxer truncating the film — the honest
+    // alternative to padding the source file. But `apad` pads with silence *indefinitely* by default, so it
+    // MUST be paired with `-shortest`: without it the video input ends when the frame sequence runs out while
+    // the padded audio never does, and ffmpeg waits forever. That was a real hang — a 240-frame render had to
+    // be killed after ten minutes and left a 49 MB file with no moov atom, which is precisely the truncated
+    // master `render.frameCount` exists to catch.
+    //
+    // `-shortest` makes the finite stream the limiting one, which after padding is always the video.
+    args.push("-af", "apad", "-c:a", "aac", "-b:a", "256k", "-shortest");
   }
 
   const isProRes = options.encoderArgs.includes("prores_ks");
