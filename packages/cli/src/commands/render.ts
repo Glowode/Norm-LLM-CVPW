@@ -354,7 +354,7 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
         software: outcome.software,
         resolvedTimes: {},
         frameHashes: outcome.frameHashes,
-        registry: {},
+        registry: outcome.registry,
         warnings: outcome.warnings,
         errors: outcome.errors,
         sha256: sha256(fileBytes),

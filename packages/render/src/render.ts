@@ -93,6 +93,14 @@ export interface RenderOutcome {
   msPerFrame: { avg: number; p50: number; p95: number; max: number };
   /** Frame index to content hash, at the sampled times. */
   frameHashes: Record<string, string>;
+  /**
+   * The scenes and styles the pages registered, as the pages themselves reported them.
+   *
+   * Recorded so `render.registry` can answer "is the master on disk the film this source describes?" — a
+   * question nothing else can ask, because every other gate validates the *current* definition against the
+   * *recorded* file and would happily pass a master rendered before the scene was rewritten.
+   */
+  registry: { scenes: string[]; styles: string[] };
   warnings: string[];
   errors: string[];
   command: string[];
@@ -267,6 +275,7 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
       software,
       msPerFrame: percentileSummary(times),
       frameHashes,
+      registry: results[0]?.registry ?? { scenes: [], styles: [] },
       warnings,
       errors,
       command: encoded.command,
@@ -300,7 +309,9 @@ interface ChunkArgs {
 }
 
 /** One worker: open the page, draw its range, hand every frame to the sink. */
-async function runChunk(args: ChunkArgs): Promise<{ renderer: string; software: boolean }> {
+async function runChunk(
+  args: ChunkArgs,
+): Promise<{ renderer: string; software: boolean; registry: { scenes: string[]; styles: string[] } }> {
   const { browser, url, chunk, request, sink } = args;
   const fps = request.fps;
 
@@ -400,7 +411,15 @@ async function runChunk(args: ChunkArgs): Promise<{ renderer: string; software: 
   if (pageErrors.length) {
     args.warnings.push(`worker ${chunk.worker} saw ${pageErrors.length} page exception(s)`);
   }
-  return { renderer, software };
+  // The page reports what it registered in `window.engine.meta`. Reading it from the page rather than from a
+  // manifest means the report describes what actually ran, not what was supposed to.
+  const registry = await browser
+    .evaluate<{ scenes?: string[]; styles?: string[] }>(
+      "(function(){var m = (window.engine && window.engine.meta) || {}; return { scenes: m.scenes || [], styles: m.styles || [] };})()",
+    )
+    .then((meta) => ({ scenes: meta?.scenes ?? [], styles: meta?.styles ?? [] }))
+    .catch(() => ({ scenes: [], styles: [] }));
+  return { renderer, software, registry };
 }
 
 function percentileSummary(values: readonly number[]): { avg: number; p50: number; p95: number; max: number } {

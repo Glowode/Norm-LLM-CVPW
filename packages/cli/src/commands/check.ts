@@ -53,6 +53,8 @@ export const IMPLEMENTED_CHECKS = [
   "scene.perf",
   "lyrics.alignment",
   "render.registry",
+  "render.noDeadFrames",
+  "scene.errors",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -589,6 +591,38 @@ export async function runChecks(
     if (should("scene.perf")) outcomes.push(await staticGates.gateScenePerf(context.root));
     if (should("lyrics.alignment")) outcomes.push(await staticGates.gateLyricsAlignment(context.root));
     if (should("render.registry")) outcomes.push(await staticGates.gateRegistry(context.root, storyboard));
+  }
+  if (should("render.noDeadFrames") || should("scene.errors")) {
+    // One pass over the whole film at low resolution, because both questions are answered by the same playback:
+    // no window may be unchanged-and-empty, and nothing may have thrown while it ran.
+    const { checkPlayback } = await import("./playback.js");
+    const playback = await checkPlayback({
+      root: context.root,
+      fps: context.fps,
+      duration: context.duration,
+      width: context.width ?? 1920,
+      height: context.height ?? 1080,
+    });
+    if (should("render.noDeadFrames")) {
+      outcomes.push({
+        id: "render.noDeadFrames",
+        title: "nothing changes in no window: every 0.5 s has content or motion",
+        ok: playback.deadFrames.ok,
+        measured: playback.deadFrames.measured,
+        offenders: playback.deadFrames.offenders,
+        ...(playback.deadFrames.skipped ? { skipped: playback.deadFrames.skipped } : {}),
+      });
+    }
+    if (should("scene.errors")) {
+      outcomes.push({
+        id: "scene.errors",
+        title: "no scene throws or logs an error while the film plays",
+        ok: playback.sceneErrors.ok,
+        measured: playback.sceneErrors.measured,
+        offenders: playback.sceneErrors.offenders,
+        ...(playback.sceneErrors.skipped ? { skipped: playback.sceneErrors.skipped } : {}),
+      });
+    }
   }
   if (should("publish.lyricText")) {
     // Pure file check, and the one gate here that is a LEGAL matter rather than a quality one
