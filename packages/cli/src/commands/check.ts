@@ -55,6 +55,10 @@ export const IMPLEMENTED_CHECKS = [
   "render.registry",
   "render.noDeadFrames",
   "scene.errors",
+  "contract.validate",
+  "determinism.bannedApi",
+  "timeline.coverage",
+  "determinism.workerCount",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -591,6 +595,73 @@ export async function runChecks(
     if (should("scene.perf")) outcomes.push(await staticGates.gateScenePerf(context.root));
     if (should("lyrics.alignment")) outcomes.push(await staticGates.gateLyricsAlignment(context.root));
     if (should("render.registry")) outcomes.push(await staticGates.gateRegistry(context.root, storyboard));
+  }
+  if (should("contract.validate")) {
+    // The same registry `cvpw validate` uses, so the gate and the command cannot disagree about what a valid
+    // artifact is.
+    const { validateProject } = await import("./validate.js");
+    const validated = await validateProject({ root: context.root });
+    const failed = validated.artifacts.filter((artifact) => !artifact.ok);
+    outcomes.push({
+      id: "contract.validate",
+      title: "every artifact validates against its schema",
+      ok: validated.ok,
+      measured: { artifacts: validated.artifacts.length, failing: failed.length, cross: validated.cross.length },
+      offenders: [
+        ...failed.map((artifact) => ({
+          code: "artifact.invalid",
+          where: artifact.artifact,
+          detail: artifact.issues.slice(0, 3).map((issue) => `${issue.pointer} ${issue.message}`).join("; "),
+        })),
+        ...validated.cross
+          .filter((check) => !check.ok)
+          .map((check) => ({ code: check.id, where: "cross-artifact", detail: check.detail })),
+      ].slice(0, 12),
+    });
+  }
+  if (should("determinism.bannedApi")) {
+    // The AST audit. Shares `@cvpw/audit` with `cvpw lint`, so a banned API cannot pass one and fail the other.
+    const { lintProject } = await import("./lint.js");
+    const linted = await lintProject({ root: context.root });
+    outcomes.push({
+      id: "determinism.bannedApi",
+      title: "no scene uses an API that makes a frame depend on anything but t",
+      ok: linted.errors === 0,
+      measured: { files: linted.files, errors: linted.errors, warnings: linted.warnings },
+      offenders: linted.findings
+        .filter((finding) => finding.severity === "error")
+        .slice(0, 12)
+        .map((finding) => ({ code: finding.rule, where: `${finding.file}:${finding.line}`, detail: finding.message })),
+    });
+  }
+  if (should("timeline.coverage")) {
+    // Already computed for the storyboard; exposing it as a gate means a coverage gap fails `cvpw check` too,
+    // not only `cvpw validate`.
+    const gaps = storyboard?.problems.filter((problem) => problem.reason === "empty-range") ?? [];
+    outcomes.push({
+      id: "timeline.coverage",
+      title: "the timeline covers the whole duration with no gaps",
+      ok: gaps.length === 0,
+      measured: { shots: storyboard?.shots.length ?? 0, duration: `${(storyboard?.duration ?? 0).toFixed(3)} s` },
+      offenders: gaps.map((problem) => ({ code: problem.reason, where: problem.shotId, detail: problem.message })),
+      ...(storyboard ? {} : { skipped: "the storyboard could not be built" }),
+    });
+  }
+  if (should("determinism.workerCount")) {
+    // Deliberately NOT run by default. It renders the whole film twice at different worker counts, which is two
+    // full renders — minutes, not seconds — and it is the only gate whose cost is proportional to the film
+    // rather than to a sample. Run it when the claim is being re-verified, which is what `cvpw gold` is for.
+    outcomes.push({
+      id: "determinism.workerCount",
+      title: "the film does not change when the worker count does",
+      ok: true,
+      measured: { cost: "two full renders" },
+      offenders: [],
+      skipped:
+        "this gate renders the film twice and is not run by default. Compare frame hashes from two `cvpw render " +
+        "--workers N` runs in render/report.json, or run `cvpw check --only determinism.workerCount` deliberately. " +
+        "It was verified by hand: --workers 1 and --workers 4 produced a byte-identical MP4.",
+    });
   }
   if (should("render.noDeadFrames") || should("scene.errors")) {
     // One pass over the whole film at low resolution, because both questions are answered by the same playback:
