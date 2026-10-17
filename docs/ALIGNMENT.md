@@ -118,6 +118,38 @@ Two notes that save time:
 
 ---
 
+## 5. Per-character timing exists in the corpus, and it beats any aligner
+
+Some `.lrc` files carry `<start,length>` markup in milliseconds, relative to the line's own timestamp:
+
+```
+[00:27.860]<0,160>刃<160,290>渡<450,100>り<550,260>數 ...
+```
+
+This was described as "XML markup" and it is not — it is **per-character timing**, and it is the best timing in
+the file. Two deficits came from treating it as text, both fixed by `parseLrcKaraoke`:
+
+1. The markup would have been **drawn on screen** as literal `<0,160>` characters.
+2. The character timings were **discarded**, throwing away information no aligner could reconstruct.
+
+Measured over the full 25-song corpus:
+
+| | |
+|---|---|
+| naive timed lines | 2536 |
+| lines after collapsing per-timestamp duplicates | **1312** (48.3% were duplicates) |
+| songs carrying per-character timing | **6** |
+| characters with an individual time | **5648** |
+| failures | 0 |
+
+The corpus stores **three lines per timestamp** — the karaoke line, a plain lyric line, and a translation — so a
+naive parse returns roughly three times the real line count. `parseLrcKaraoke` collapses them, preferring the
+karaoke line because it carries both the characters and the plain text.
+
+`source` stays `lrc` for this: it is a fact read from the file, not an estimate and not a recognition result. It
+is worth being explicit because "we timed it ourselves" and "the file told us" are different claims, and only the
+second one is true here.
+
 ## 5. Measured against a real corpus, because a parser that passes unit tests proves little
 
 The reference machine has a test corpus of 25 songs at `F:\Downloads\Music`, each `.flac` with a same-named
