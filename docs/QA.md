@@ -85,6 +85,16 @@ blank frames differ slightly, and a threshold carrying slack for that is exactly
 have. This is a *visibility* check, so reading the canvas is the right instrument; `frameHash` still comes
 from captured bytes, for the reason [ADR 0007](./adr/0007-warmup-frames-and-first-frame-instability.md) gives.
 
+| `render.postApplied` | 5,6 | a declared grade changes the picture: the same frame with and without grain must differ | `cvpw check --frames` | `post.inert <frame>` | yes |
+| `render.registry` | 5 | the master was rendered with the scenes the project now has | `cvpw check` | `registry-drift <scene>` | yes |
+| `scenes.registry` | 3 | every shot names a scene that exists | `cvpw check` | `scene.unknown <id>` | no |
+| `timeline.time` | 2 | every time expression resolves and the duration is covered | `cvpw check` | `time.unresolved <shot>` | no |
+| `blender.version` | 8 | the Blender the bridge can reach is 5.0 or newer | `cvpw check` | `blender.too-old <root>` | yes — absent Blender is a skip |
+
+**Five of these were implemented before they were documented**, which is backwards: `docs/QA.md` is normative
+(AGENTS.md level 4), so a gate that exists only in code is a gate an agent cannot know to run. `render.postApplied`
+is the one that found the post-processing chain which had never executed in the engine's life — the most valuable
+gate in the suite was the one least documented, which is exactly how a suite drifts away from its own rules.
 **`flash.rate` is two-tier, and the second tier is not a warning.** The budget is 3 large-area luminance
 round-trips per second, with saturated red weighted more heavily because it is the most provocative frequency
 for a photosensitive viewer. A film within budget passes and needs nothing.
