@@ -768,6 +768,10 @@ export class Engine {
       this.glPost ??= createGLPost();
       const post2d = this.glPost;
       if (post2d.available && post2d.canvas) {
+        // FLUSH FIRST. Canvas2D drawing is queued and returns immediately, so uploading the canvas as a texture
+        // can capture a frame whose draw calls have not all executed — the same defect that made `--workers`
+        // change the film earlier in this project, reappearing at a new seam. One pixel read forces rasterisation.
+        g.getImageData(0, 0, 1, 1);
         glApplied = post2d.apply(this.canvas, { bloom: post.bloom }, w, h);
         if (glApplied) {
           g.save();
