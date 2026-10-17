@@ -33,7 +33,7 @@ import {
 import { Timebase, TimeExpressionError, type Resolution } from "./time.js";
 import type { TimebaseData } from "./timebase.js";
 import { clamp01, hexToRgb, mixHex } from "./util.js";
-import { createGLPost, type GLPost } from "./glpost.js";
+import { createGLPost, wantsGLPost, type GLPost } from "./glpost.js";
 
 /** One shot in the edit, after time resolution. */
 export interface ResolvedShot {
@@ -764,7 +764,7 @@ export class Engine {
     // which is why `docs/ARCHITECTURE.md` reserved this for phase 2. The chain owns its own canvas because a
     // canvas that already has a 2D context cannot also hand out a WebGL2 one, so the result comes back here.
     let glApplied = false;
-    if (post.bloom && post.bloom > 0) {
+    if (wantsGLPost(post)) {
       this.glPost ??= createGLPost();
       const post2d = this.glPost;
       if (post2d.available && post2d.canvas) {
@@ -772,7 +772,18 @@ export class Engine {
         // can capture a frame whose draw calls have not all executed — the same defect that made `--workers`
         // change the film earlier in this project, reappearing at a new seam. One pixel read forces rasterisation.
         g.getImageData(0, 0, 1, 1);
-        glApplied = post2d.apply(this.canvas, { bloom: post.bloom }, w, h);
+        glApplied = post2d.apply(
+          this.canvas,
+          {
+            bloom: post.bloom,
+            chromatic: post.chromatic,
+            saturate: post.saturate,
+            brightness: post.brightness,
+            contrast: post.contrast,
+          },
+          w,
+          h,
+        );
         if (glApplied) {
           g.save();
           g.setTransform(1, 0, 0, 1, 0, 0);

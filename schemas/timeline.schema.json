@@ -89,7 +89,13 @@
             "properties": {
               "vignette": { "type": "number", "minimum": 0, "maximum": 1 },
               "grain": { "type": "number", "minimum": 0, "maximum": 1 },
-              "bloom": { "type": "number", "minimum": 0 },
+              "bloom": { "type": "number", "minimum": 0, "maximum": 1 },
+              "chromatic": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Radial RGB separation, strongest at the frame edges. Applied by the WebGL2 post chain; ignored by the Canvas2D fallback, which is why it is a value a project may declare only once glPost is active."
+              },
               "saturate": { "type": "number", "minimum": 0 },
               "brightness": { "type": "number" },
               "contrast": { "type": "number" },

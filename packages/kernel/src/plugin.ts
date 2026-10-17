@@ -307,8 +307,10 @@ export interface PostParams {
   vignette?: number;
   /** 0 = off. Applied as a multiply over the whole frame. */
   grain?: number;
-  /** Bloom strength; the WebGL2 chain is phase 2, and this is reserved until then. */
+  /** Bloom strength, 0..1. Applied by the WebGL2 chain: thresholded, blurred at two radii, added. */
   bloom?: number;
+  /** Radial RGB separation, 0..1, strongest at the frame edges. WebGL2 chain only. */
+  chromatic?: number;
   /** Whole-frame tint. */
   tint?: { color: string; alpha: number };
   saturate?: number;

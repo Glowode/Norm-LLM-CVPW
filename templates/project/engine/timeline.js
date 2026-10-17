@@ -69,7 +69,7 @@ export const timeline = {
       // time and refuse the film — correct behaviour, and an annoying way to discover a deliberate pause.
       to: "cue('burst_end')",
       args: { count: 90, hue: 0.08, word: "CHORUS" },
-      post: { bloom: 0.35 },
+      post: { bloom: 0.35, chromatic: 0.45 },
     },
     {
       id: "s04_hold",

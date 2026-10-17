@@ -38,6 +38,23 @@ export interface GLPostParams {
   bloom?: number;
   /** 0..1. Radial RGB separation, strongest at the frame edges. */
   chromatic?: number;
+  /** Multiplier on colour, 1 = unchanged. */
+  saturate?: number;
+  /** Additive, 0 = unchanged. */
+  brightness?: number;
+  /** Pivot around 0.5; 1 = unchanged. */
+  contrast?: number;
+}
+
+/** True when any value this chain can act on is non-neutral. */
+export function wantsGLPost(params: GLPostParams): boolean {
+  return (
+    (params.bloom ?? 0) > 0 ||
+    (params.chromatic ?? 0) > 0 ||
+    (params.saturate ?? 1) !== 1 ||
+    (params.brightness ?? 0) !== 0 ||
+    (params.contrast ?? 1) !== 1
+  );
 }
 
 export interface GLPost {
@@ -110,6 +127,9 @@ uniform sampler2D uSource;
 uniform sampler2D uBloom;
 uniform float uBloomStrength;
 uniform float uChromatic;
+uniform float uSaturate;
+uniform float uBrightness;
+uniform float uContrast;
 out vec4 outColor;
 void main() {
   vec3 base = texture(uSource, vUv).rgb;
@@ -125,7 +145,13 @@ void main() {
     col.r = texture(uSource, vUv + shift).r;
     col.b = texture(uSource, vUv - shift).b;
   }
-  outColor = vec4(col, 1.0);
+  // Colour operators, in the order a grade is normally applied: contrast around the midpoint, then saturation
+  // by luminance, then exposure. They live here rather than in Canvas2D because a shader does them in one pass.
+  col = (col - 0.5) * uContrast + 0.5;
+  float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col = mix(vec3(luma), col, uSaturate);
+  col += uBrightness;
+  outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
@@ -254,7 +280,7 @@ export function createGLPost(): GLPost {
     apply(image: TexImageSource, params, width, height) {
       const bloom = Math.max(0, Math.min(1, params.bloom ?? 0));
       const chromatic = Math.max(0, Math.min(1, params.chromatic ?? 0));
-      if (bloom <= 0 && chromatic <= 0) return false;
+      if (!wantsGLPost(params)) return false;
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width;
         canvas.height = height;
@@ -319,6 +345,9 @@ export function createGLPost(): GLPost {
       gl.uniform1i(uniform(composite, "uBloom"), 1);
       gl.uniform1f(uniform(composite, "uBloomStrength"), bloom);
       gl.uniform1f(uniform(composite, "uChromatic"), chromatic);
+      gl.uniform1f(uniform(composite, "uSaturate"), params.saturate ?? 1);
+      gl.uniform1f(uniform(composite, "uBrightness"), params.brightness ?? 0);
+      gl.uniform1f(uniform(composite, "uContrast"), params.contrast ?? 1);
       draw(composite);
       gl.bindVertexArray(null);
       return true;
