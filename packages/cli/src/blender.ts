@@ -399,3 +399,69 @@ export async function runBlender(install: BlenderInstall, request: RenderRequest
   }
   return { elapsedMs, log };
 }
+/**
+ * Adopt Blender's output as this framework's frames.
+ *
+ * MEASURED MISMATCH, which is why this function exists:
+ *
+ *   Blender writes      0001.png, 0002.png, ...      four digits, no prefix
+ *   FrameSink expects   f000001.png, f000002.png      one prefix, six digits
+ *
+ * Renaming is the cheap half. The half that matters is GAP DETECTION: if Blender skipped one frame,
+ * renaming the rest sequentially would close the hole and shift every later frame, producing a film
+ * whose timing is subtly wrong everywhere after the gap and whose pixel gates all still pass. So a gap
+ * is an error, and the message names the missing frame number.
+ *
+ * Frame numbers are mapped so that `frameStart` becomes index 0, which is what the sink and the encoder
+ * both count from.
+ */
+export interface AdoptedFrames {
+  /** Files now named the way the sink expects, in ascending frame order. */
+  frames: Array<{ index: number; path: string; sourceFrame: number }>;
+  /** Source frames that were present, before renaming. */
+  present: number;
+}
+
+export async function adoptBlenderFrames(
+  directory: string,
+  options: { frameStart: number; frameEnd: number; extension?: string },
+): Promise<AdoptedFrames> {
+  const { readdir, rename, stat } = await import("node:fs/promises");
+  const extension = options.extension ?? "png";
+  const entries = await readdir(directory).catch(() => [] as string[]);
+
+  // Blender's own numbering, read back from the filenames rather than assumed to be contiguous.
+  const byFrame = new Map<number, string>();
+  const pattern = new RegExp(`^(\\d+)\\.${extension}$`, "i");
+  for (const entry of entries) {
+    const match = pattern.exec(entry);
+    if (!match) continue;
+    const info = await stat(join(directory, entry)).catch(() => null);
+    if (!info || info.size === 0) continue;
+    byFrame.set(Number(match[1]), entry);
+  }
+
+  const missing: number[] = [];
+  for (let frame = options.frameStart; frame <= options.frameEnd; frame++) {
+    if (!byFrame.has(frame)) missing.push(frame);
+  }
+  if (missing.length > 0) {
+    throw new BlenderError(
+      `Blender produced no file for frame(s) ${missing.slice(0, 8).join(", ")}${missing.length > 8 ? ", ..." : ""} ` +
+        `in ${directory}. Renaming the rest sequentially would close the hole and shift every later frame, so ` +
+        `this is an error rather than a repair: a film with a missing frame is a film whose timing is wrong ` +
+        `everywhere after the gap, and no pixel gate would see it.`,
+      { exitCode: null, log: `present: ${[...byFrame.keys()].sort((a, b) => a - b).join(", ")}` },
+    );
+  }
+
+  const frames: AdoptedFrames["frames"] = [];
+  for (let frame = options.frameStart; frame <= options.frameEnd; frame++) {
+    const from = join(directory, byFrame.get(frame) as string);
+    const index = frame - options.frameStart;
+    const to = join(directory, `f${String(index).padStart(6, "0")}.${extension}`);
+    if (from !== to) await rename(from, to);
+    frames.push({ index, path: to, sourceFrame: frame });
+  }
+  return { frames, present: byFrame.size };
+}
