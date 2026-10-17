@@ -790,9 +790,18 @@ export async function runChecks(
     // once the credit is drawn, so this gate does not re-render to duplicate them.
     const paths = projectPaths(context.root);
     const project = existsSync(paths.projectJson)
-      ? ((await readJson(paths.projectJson)) as { credit?: string; textWhitelist?: string[] })
+      ? ((await readJson(paths.projectJson)) as { credit?: string; textWhitelist?: string[]; artist?: string; titleSub?: string })
       : {};
     const credit = typeof project.credit === "string" ? project.credit.trim() : "";
+    // A title and a subtitle are the two strings a film most obviously needs on screen, and they were declared
+    // in the schema and read by nothing. The renderer cannot draw them yet, so this gate enforces the part that
+    // is enforceable today: if a project declares one, it must at least be drawable — whitelisted, so a scene
+    // MAY print it. Declaring a title that no scene can print is the failure this catches.
+    const titleish = (["artist", "titleSub"] as const).filter((key) => {
+      const value = (project as Record<string, unknown>)[key];
+      return typeof value === "string" && value.trim().length > 0;
+    });
+    const undrawable = titleish.filter((key) => !(project.textWhitelist ?? []).includes(String((project as Record<string, unknown>)[key]).trim()));
     const readmePath = join(context.root, "README.md");
     const readme = existsSync(readmePath) ? await readFile(readmePath, "utf8") : null;
     const inReadme = credit === "" ? true : (readme ?? "").includes(credit);
@@ -816,10 +825,27 @@ export async function runChecks(
     }
     outcomes.push({
       id: "deliver.credit",
-      title: "the declared credit appears where a viewer and a reader can find it",
-      ok: offenders.length === 0,
-      measured: { credit: credit === "" ? "(none declared)" : credit, "in README": inReadme ? "yes" : "no", whitelisted: whitelisted ? "yes" : "no" },
-      offenders,
+      title: "the declared credit and titles are findable and drawable",
+      // Both halves: where the credit appears, and whether a declared title can reach the screen at all.
+      ok: offenders.length === 0 && undrawable.length === 0,
+      measured: {
+        credit: credit === "" ? "(none declared)" : credit,
+        "in README": inReadme ? "yes" : "no",
+        whitelisted: whitelisted ? "yes" : "no",
+        "titles declared": titleish.length === 0 ? "(none)" : titleish.join(", "),
+        "titles drawable": titleish.length === 0 ? "n/a" : `${titleish.length - undrawable.length}/${titleish.length}`,
+      },
+      offenders: [
+        ...offenders,
+        ...undrawable.map((key) => ({
+          code: "title-not-drawable",
+          where: `project.json::${key}`,
+          detail:
+            `${key} is declared but is not in textWhitelist, so no scene may print it. Either whitelist it, or ` +
+            `leave it empty — a declared title that cannot reach the screen is the same defect as a declared ` +
+            `grade that cannot change the picture.`,
+        })),
+      ],
       ...(credit === "" ? { skipped: "no credit is declared, so there is nothing to place" } : {}),
     });
   }
