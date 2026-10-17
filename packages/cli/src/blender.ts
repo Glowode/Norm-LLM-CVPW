@@ -231,6 +231,15 @@ export interface RenderRequest {
   script: string;
   /** Milliseconds. Five minutes is generous for one frame and short enough to fail loudly. */
   timeoutMs?: number;
+  /**
+   * How many image files the run must leave behind. When set, a shortfall is a `BlenderError`.
+   *
+   * This exists because a reached sentinel proves only that the script finished. Measured, on this machine:
+   * a run with `render.filepath` set to a bare directory exited 0, printed the sentinel, and wrote **zero**
+   * files. Without a count, that is a silent empty render — and the frames would have flowed onward into an
+   * encoder that dutifully produced a zero-frame film.
+   */
+  expectFrames?: number;
 }
 
 export interface RenderOutcome {
@@ -351,6 +360,38 @@ export async function runBlender(install: BlenderInstall, request: RenderRequest
         `Blender exits 0 even when a script raises, which is why this is decided by the sentinel alone.`,
       { exitCode: code, log: log.slice(-4000), scriptPath },
     );
+  }
+
+  // A sentinel proves the script finished, not that it produced anything. Count what is on disk when the caller
+  // said how much to expect.
+  if (typeof request.expectFrames === "number") {
+    const { readdir, stat } = await import("node:fs/promises");
+    const { dirname, extname } = await import("node:path");
+    // Resolve the counted directory the same way the render does. A path with no extension is a DIRECTORY, even
+    // when it does not exist yet — falling back to `dirname` there counts an unrelated parent folder and turns a
+    // silent empty render into a pass. Measured: this exact bug let a zero-output run satisfy `expectFrames: 2`
+    // because the temp directory around it happened to hold other PNGs.
+    const looksLikeDirectory = extname(request.outputPath) === "";
+    const directory = looksLikeDirectory
+      ? request.outputPath
+      : request.outputPath.endsWith("/") || request.outputPath.endsWith("\\")
+        ? request.outputPath
+        : dirname(request.outputPath);
+    let produced = 0;
+    const entries = await readdir(directory).catch(() => [] as string[]);
+    for (const entry of entries) {
+      if (!/\.(png|exr|jpg|jpeg)$/i.test(entry)) continue;
+      const info = await stat(join(directory, entry)).catch(() => null);
+      if (info && info.size > 0) produced++;
+    }
+    if (produced < request.expectFrames) {
+      throw new BlenderError(
+        `Blender reached ${SENTINEL} but left ${produced} image(s) in ${directory}, expected ` +
+          `${request.expectFrames}. A sentinel proves the script finished, not that it wrote anything: a ` +
+          `bare directory in render.filepath is treated as a filename prefix and produces exactly this.`,
+        { exitCode: code, log: log.slice(-4000), scriptPath },
+      );
+    }
   }
   return { elapsedMs, log };
 }
