@@ -43,6 +43,8 @@ export const IMPLEMENTED_CHECKS = [
   "text.legibility",
   "flash.rate",
   "timeline.pacing",
+  "assets.manifest",
+  "handoff.pixel",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -562,6 +564,58 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (should("assets.manifest")) {
+    // Pure: reads assets/manifest.json and hashes what it declares. A project with no assets is valid, so a
+    // missing manifest reports "nothing to validate" rather than failing.
+    const { validateAssets } = await import("./assets.js");
+    const assets = await validateAssets(context.root);
+    outcomes.push({
+      id: "assets.manifest",
+      title: "every declared asset is present, hash-matched, licensed and sourced",
+      ok: assets.problems.length === 0,
+      measured: { declared: assets.declared, verified: assets.verified },
+      offenders: assets.problems.map((problem) => ({ code: problem.code, where: problem.asset, detail: problem.message })),
+      ...(assets.manifest === null ? { skipped: "no assets/manifest.json — a project with no asset files is valid" } : {}),
+    });
+  }
+  if (should("handoff.pixel")) {
+    // Reuses `cvpw handoff`'s measurement rather than duplicating it. `handoff.json` is AUTHORED, so absence
+    // is a skip: there are no declared seams, which is different from seams that fail.
+    const { measureHandoffs } = await import("./handoff.js");
+    try {
+      const handoff = await measureHandoffs({ root: context.root });
+      const judged = handoff.seams.filter((seam) => seam.kind === "pixel");
+      outcomes.push({
+        id: "handoff.pixel",
+        title: "declared pixel seams match across the cut",
+        ok: handoff.ok,
+        measured: {
+          seams: handoff.seams.length,
+          pixel: judged.length,
+          worst: judged.reduce((worst, seam) => Math.max(worst, seam.diff ?? 0), 0).toFixed(5),
+          "minor <": handoff.thresholds.minor,
+          "fail >=": handoff.thresholds.fail,
+        },
+        offenders: handoff.seams
+          .filter((seam) => seam.grade === "fail")
+          .map((seam) => ({
+            code: "seam.fail",
+            where: `${seam.id} @ frame ${seam.frame}`,
+            detail: `${seam.diff?.toFixed(5) ?? "unmeasured"} against a ${handoff.thresholds.fail} threshold`,
+          })),
+        ...(judged.length === 0 ? { skipped: "no pixel seams are declared in handoff.json" } : {}),
+      });
+    } catch (error) {
+      outcomes.push({
+        id: "handoff.pixel",
+        title: "declared pixel seams match across the cut",
+        ok: true,
+        measured: {},
+        offenders: [],
+        skipped: error instanceof Error ? error.message.split("\n")[0] : String(error),
+      });
+    }
   }
   if (should("timeline.pacing")) {
     // Pure arithmetic on the storyboard, so it needs no browser and costs milliseconds. It runs here as well
