@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { Browser } from "@cvpw/render";
+import { Browser, probeOutput, run } from "@cvpw/render";
 import {
   DEFAULT_SCENE_THRESHOLDS,
   frameMetricsExpression,
@@ -33,6 +33,8 @@ import { buildStoryboard } from "./storyboard.js";
 /** The checks this command implements. Every id here also appears in `docs/QA.md`. */
 export const IMPLEMENTED_CHECKS = [
   "render.frameContent",
+  "render.frameCount",
+  "av.sync",
   "determinism.gold",
   "scenes.registry",
   "timeline.time",
@@ -235,7 +237,184 @@ export async function checkScenes(context: CheckContext): Promise<{ outcome: Che
   }
 }
 
-/** `scenes.registry` — every shot's scene is registered, and every registered scene is reachable. */
+
+/**
+ * `render.frameCount` — the file contains the frames the film needs.
+ *
+ * **This is the gate that catches the worst failure available to a renderer.** A truncated MP4 passes an
+ * existence check, has a plausible size, opens, and plays for the first thirty seconds. Everything about it
+ * looks finished except the part nobody checks. So the count comes from `ffprobe -count_frames` — an actual
+ * decode of every frame — and is compared against `round(duration × fps)`, not against whatever the frame
+ * sink claimed to write.
+ *
+ * A missing master is reported as skipped rather than failed: the gate measures a file that exists, and
+ * `deliver` is what refuses to ship when nothing was rendered. Two gates failing for one cause trains people
+ * to read the list as noise.
+ */
+export async function checkFrameCount(root: string, ffprobe: string | null): Promise<CheckOutcome> {
+  const id = "render.frameCount";
+  const title = "the master contains exactly the frames the film needs";
+  const renderDir = join(root, "render");
+  const reportPath = join(renderDir, "report.json");
+
+  if (!existsSync(reportPath)) {
+    return { id, title, ok: true, measured: {}, offenders: [], skipped: "no render/report.json — nothing has been rendered" };
+  }
+  const report = (await readJson(reportPath)) as {
+    output?: string;
+    frames?: number;
+    fps?: number;
+    width?: number;
+    height?: number;
+  };
+  const name = report.output?.split(/[/\\]/).pop();
+  if (!name) {
+    return { id, title, ok: false, measured: {}, offenders: [{ code: "report.no-output", where: "render/report.json", detail: "records no output file" }] };
+  }
+  const master = join(renderDir, name);
+  if (!existsSync(master)) {
+    return {
+      id,
+      title,
+      ok: false,
+      measured: {},
+      offenders: [{ code: "master.missing", where: `render/${name}`, detail: "the report names a file that is not on disk" }],
+    };
+  }
+  if (!ffprobe) {
+    return { id, title, ok: true, measured: {}, offenders: [], skipped: "ffprobe not found, so the frame count cannot be verified" };
+  }
+
+  const probed = await probeOutput(ffprobe, master);
+  if (probed.frames === null) {
+    return {
+      id,
+      title,
+      ok: false,
+      measured: {},
+      offenders: [{ code: "probe.failed", where: `render/${name}`, detail: "ffprobe could not count the frames, so the file cannot be trusted" }],
+    };
+  }
+
+  const fps = report.fps ?? 30;
+  const expected = report.frames ?? 0;
+  const offenders: Offender[] = [];
+  if (expected > 0 && probed.frames !== expected) {
+    offenders.push({
+      code: "frame-count",
+      where: `render/${name}`,
+      detail: `the file contains ${probed.frames} frames but the film needs ${expected} (${(probed.frames / fps).toFixed(3)} s of ${(expected / fps).toFixed(3)} s)`,
+    });
+  }
+  return {
+    id,
+    title,
+    ok: offenders.length === 0,
+    measured: { expected, inFile: probed.frames, fps, durationSec: (probed.duration ?? 0).toFixed(3) },
+    offenders,
+  };
+}
+
+/**
+ * `av.sync` — the audio and the picture start and end together.
+ *
+ * **What this measures, and what it does not.** `docs/QA.md` specifies a waveform cross-correlation within one
+ * frame. That needs the two tracks decoded to PCM and correlated, which is a real piece of signal processing
+ * and is not implemented. What IS implemented is the part a container can answer exactly: the audio stream's
+ * start time against the video stream's, and the two durations. A mux offset of half a second is a sync bug,
+ * it is detectable without correlation, and it is the failure a `-itsoffset` typo actually produces.
+ *
+ * The cross-correlation gap is reported as `skipped` with that reason, never as a pass — a gate that silently
+ * checks less than its name promises is worse than no gate, because the name is what people trust.
+ */
+export async function checkAvSync(root: string, ffprobe: string | null): Promise<CheckOutcome> {
+  const id = "av.sync";
+  const title = "audio and picture start and end together";
+  const renderDir = join(root, "render");
+  const reportPath = join(renderDir, "report.json");
+  if (!existsSync(reportPath)) {
+    return { id, title, ok: true, measured: {}, offenders: [], skipped: "no render yet" };
+  }
+  const report = (await readJson(reportPath)) as { output?: string; frames?: number; fps?: number };
+  const name = report.output?.split(/[/\\]/).pop();
+  const master = name ? join(renderDir, name) : null;
+  if (!master || !existsSync(master)) {
+    return { id, title, ok: true, measured: {}, offenders: [], skipped: "no master on disk" };
+  }
+  if (!ffprobe) {
+    return { id, title, ok: true, measured: {}, offenders: [], skipped: "ffprobe not found" };
+  }
+
+  const probed = await run(ffprobe, [
+    "-v", "error", "-show_entries", "stream=codec_type,start_time,duration",
+    "-of", "json", master,
+  ], { timeoutMs: 60_000 });
+  if (probed.code !== 0) {
+    return { id, title, ok: false, measured: {}, offenders: [{ code: "probe.failed", where: `render/${name}`, detail: "ffprobe could not read the streams" }] };
+  }
+  let streams: Array<{ codec_type?: string; start_time?: string; duration?: string }> = [];
+  try {
+    streams = (JSON.parse(probed.stdout) as { streams?: typeof streams }).streams ?? [];
+  } catch {
+    streams = [];
+  }
+  const video = streams.find((stream) => stream.codec_type === "video");
+  const audio = streams.find((stream) => stream.codec_type === "audio");
+
+  if (!audio) {
+    return {
+      id,
+      title,
+      ok: true,
+      measured: { audio: "none" },
+      offenders: [],
+      skipped: "the master has no audio track, so there is no sync to check (a silent film is legitimate)",
+    };
+  }
+  if (!video) {
+    return { id, title, ok: false, measured: {}, offenders: [{ code: "no-video", where: `render/${name}`, detail: "audio but no video stream" }] };
+  }
+
+  const fps = report.fps ?? 30;
+  const frameSec = 1 / fps;
+  const vStart = Number(video.start_time ?? 0);
+  const aStart = Number(audio.start_time ?? 0);
+  const vDur = Number(video.duration ?? 0);
+  const aDur = Number(audio.duration ?? 0);
+  const startDelta = Math.abs(aStart - vStart);
+
+  const offenders: Offender[] = [];
+  if (Number.isFinite(startDelta) && startDelta > frameSec) {
+    offenders.push({
+      code: "av-lag",
+      where: `render/${name}`,
+      detail:
+        `audio starts ${(startDelta * 1000).toFixed(1)} ms from the picture ` +
+        `(${(startDelta / frameSec).toFixed(2)} frames, limit 1). A mux offset of this size is audible.`,
+    });
+  }
+
+  return {
+    id,
+    title,
+    ok: offenders.length === 0,
+    measured: {
+      "start delta ms": (startDelta * 1000).toFixed(1),
+      "video start": vStart.toFixed(3),
+      "audio start": aStart.toFixed(3),
+      "video duration": vDur.toFixed(3),
+      "audio duration": aDur.toFixed(3),
+      // Stated so a reader knows what was NOT measured, in the same breath as what was.
+      "waveform correlation": "not implemented — see this function's note",
+    },
+    offenders,
+    ...(offenders.length === 0
+      ? {}
+      : {}),
+  };
+}
+
+/** scenes.registry — every shot's scene is registered, and every registered scene is reachable. */
 export function checkRegistry(root: string, storyboard: Awaited<ReturnType<typeof buildStoryboard>> | null): CheckOutcome {
   if (!storyboard) {
     return {
@@ -344,6 +523,13 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (should("render.frameCount") || should("av.sync")) {
+    // `resolveTool` is imported lazily so a run that does not need ffprobe does not pay for the probe.
+    const { resolveTool } = await import("../shared.js");
+    const ffprobe = resolveTool("ffprobe").path ?? null;
+    if (should("render.frameCount")) outcomes.push(await checkFrameCount(context.root, ffprobe));
+    if (should("av.sync")) outcomes.push(await checkAvSync(context.root, ffprobe));
   }
   if (should("determinism.gold")) {
     // Imported lazily: the gold check opens its own browser session and walks the whole film, so a caller
