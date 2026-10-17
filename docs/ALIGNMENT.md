@@ -118,6 +118,37 @@ Two notes that save time:
 
 ---
 
+## 5. Measured against a real corpus, because a parser that passes unit tests proves little
+
+The reference machine has a test corpus of 25 songs at `F:\Downloads\Music`, each `.flac` with a same-named
+`.lrc`. Running `parseLrc` over all of them:
+
+| | |
+|---|---|
+| files | 25 |
+| timed lines in the files | 2536 |
+| lines `parseLrc` returned | **2536** |
+| match | yes |
+| files with XML markup | **0** |
+| files with multiple timestamps on one line | 0 |
+| blank-text timed lines | 0 |
+| throws | 0 |
+
+Two conclusions, both of which change the plan:
+
+**Every song already has timed lyrics**, so rule 1 applies to all 25 and neither recognition nor signal alignment
+is needed for any of them. The `aligned` and `transcribed` paths exist for material this corpus does not contain —
+a lyric file without timestamps. Building an onset aligner now would be building for a case that has not occurred,
+which is the mirror image of the `bloom` mistake: implementing something before knowing it is needed.
+
+**The parser is correct on real data**, not just on fixtures. That is worth stating because 2536 lines across 25
+files — Japanese, Chinese and English, with translations inline — is the kind of input a hand-written regex fails
+on in ways unit tests never find.
+
+Not present in this corpus, and therefore still unexercised: a `.lrc` with XML markup, a `.lrc` whose lines carry
+several timestamps, and a translation stored as separate timed lines rather than inline. If one of those appears,
+these numbers are the baseline to compare against.
+
 ## 5. Failure modes this page exists to prevent
 
 | Symptom | Cause | Fix |
