@@ -205,6 +205,7 @@ export async function generateAssets(root: string): Promise<GenerateResult> {
 
   const manifestPath = join(root, "assets", "manifest.json");
   const result: GenerateResult = { written: [], skipped: [], problems: [] };
+  let dirty = false;
   if (!existsSync(manifestPath)) return result;
 
   const manifest = (await readJson(manifestPath)) as {
@@ -248,13 +249,15 @@ export async function generateAssets(root: string): Promise<GenerateResult> {
     const target = join(root, asset.path);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, a);
-    result.written.push({
-      id,
-      path: asset.path,
-      bytes: a.length,
-      sha256: createHash("sha256").update(a).digest("hex"),
-      deterministic,
-    });
+    const sha256 = createHash("sha256").update(a).digest("hex");
+    (asset as { sha256?: string }).sha256 = sha256;
+    dirty = true;
+    result.written.push({ id, path: asset.path, bytes: a.length, sha256, deterministic });
   }
+
+  // Write the manifest back with the hashes it now pins. Without this the command closes half a loop: it produces
+  // bytes and reports their hash, then `assets` immediately fails with `asset.no-hash` asking the author to paste
+  // in the number the tool just computed. A tool that knows the answer must not ask the question.
+  if (dirty) await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   return result;
 }
