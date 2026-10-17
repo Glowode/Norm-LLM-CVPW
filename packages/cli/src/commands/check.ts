@@ -59,6 +59,7 @@ export const IMPLEMENTED_CHECKS = [
   "determinism.bannedApi",
   "timeline.coverage",
   "determinism.workerCount",
+  "render.postApplied",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -661,6 +662,26 @@ export async function runChecks(
         "this gate renders the film twice and is not run by default. Compare frame hashes from two `cvpw render " +
         "--workers N` runs in render/report.json, or run `cvpw check --only determinism.workerCount` deliberately. " +
         "It was verified by hand: --workers 1 and --workers 4 produced a byte-identical MP4.",
+    });
+  }
+  if (should("render.postApplied")) {
+    // The gate this project needed and did not have: does a declared value have any effect at all? Every other
+    // gate passed while the entire grade was inert, because each of them asks a different question.
+    const { checkPostApplied } = await import("./postapplied.js");
+    const post = await checkPostApplied({
+      root: context.root,
+      fps: context.fps,
+      duration: context.duration,
+      width: context.width ?? 1920,
+      height: context.height ?? 1080,
+    });
+    outcomes.push({
+      id: "render.postApplied",
+      title: "a declared grade actually changes the picture",
+      ok: post.ok,
+      measured: post.measured,
+      offenders: post.offenders,
+      ...(post.skipped ? { skipped: post.skipped } : {}),
     });
   }
   if (should("render.noDeadFrames") || should("scene.errors")) {
