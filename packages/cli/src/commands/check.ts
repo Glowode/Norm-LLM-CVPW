@@ -45,6 +45,8 @@ export const IMPLEMENTED_CHECKS = [
   "timeline.pacing",
   "assets.manifest",
   "handoff.pixel",
+  "deliver.credit",
+  "publish.lyricText",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -564,6 +566,75 @@ export async function runChecks(
     const measured = await checkScenes(context);
     outcomes.push(measured.outcome);
     frames = measured.frames;
+  }
+  if (should("publish.lyricText")) {
+    // Pure file check, and the one gate here that is a LEGAL matter rather than a quality one
+    // (docs/SPEC.md T7). A timing file says when a line starts; a text file reproduces somebody's writing.
+    const paths = projectPaths(context.root);
+    const project = existsSync(paths.projectJson)
+      ? ((await readJson(paths.projectJson)) as { lyricsLicence?: string })
+      : {};
+    const hasText = existsSync(paths.lyrics);
+    const licence = typeof project.lyricsLicence === "string" ? project.lyricsLicence.trim() : "";
+    outcomes.push({
+      id: "publish.lyricText",
+      title: "lyric text is published only when the project declares a licence",
+      ok: !hasText || licence !== "",
+      measured: { "lyric text present": hasText ? "yes" : "no", licence: licence || "(none)" },
+      offenders:
+        hasText && licence === ""
+          ? [
+              {
+                code: "lyric-text-unlicensed",
+                where: "cues/lyrics.json",
+                detail:
+                  `lyric text is present but project.json declares no lyricsLicence. Either record the licence ` +
+                  `or delete the file: publishing somebody's words without one is a legal problem, not a quality ` +
+                  `one (docs/SPEC.md T7). Timing is committable; the words are not.`,
+              },
+            ]
+          : [],
+      ...(hasText ? {} : { skipped: "no lyric text is kept, so nothing can be published" }),
+    });
+  }
+  if (should("deliver.credit")) {
+    // Half of docs/QA.md's rule is checkable without a browser: the credit must appear verbatim in README.md.
+    // The other half — that it appears in the end card — is what `text.whitelist` and `text.safeArea` cover
+    // once the credit is drawn, so this gate does not re-render to duplicate them.
+    const paths = projectPaths(context.root);
+    const project = existsSync(paths.projectJson)
+      ? ((await readJson(paths.projectJson)) as { credit?: string; textWhitelist?: string[] })
+      : {};
+    const credit = typeof project.credit === "string" ? project.credit.trim() : "";
+    const readmePath = join(context.root, "README.md");
+    const readme = existsSync(readmePath) ? await readFile(readmePath, "utf8") : null;
+    const inReadme = credit === "" ? true : (readme ?? "").includes(credit);
+    const whitelisted = credit === "" ? true : (project.textWhitelist ?? []).includes(credit);
+    const offenders: Offender[] = [];
+    if (credit !== "" && !inReadme) {
+      offenders.push({
+        code: "credit-missing",
+        where: "README.md",
+        detail: `project.json::credit is ${JSON.stringify(credit)} but it does not appear verbatim in README.md`,
+      });
+    }
+    if (credit !== "" && !whitelisted) {
+      offenders.push({
+        code: "credit-not-drawable",
+        where: "project.json::textWhitelist",
+        detail:
+          `the credit is not in textWhitelist, so no scene may draw it. A credit that cannot be put on screen ` +
+          `is not a credit.`,
+      });
+    }
+    outcomes.push({
+      id: "deliver.credit",
+      title: "the declared credit appears where a viewer and a reader can find it",
+      ok: offenders.length === 0,
+      measured: { credit: credit === "" ? "(none declared)" : credit, "in README": inReadme ? "yes" : "no", whitelisted: whitelisted ? "yes" : "no" },
+      offenders,
+      ...(credit === "" ? { skipped: "no credit is declared, so there is nothing to place" } : {}),
+    });
   }
   if (should("assets.manifest")) {
     // Pure: reads assets/manifest.json and hashes what it declares. A project with no assets is valid, so a
