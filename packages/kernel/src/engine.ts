@@ -33,6 +33,7 @@ import {
 import { Timebase, TimeExpressionError, type Resolution } from "./time.js";
 import type { TimebaseData } from "./timebase.js";
 import { clamp01, hexToRgb, mixHex } from "./util.js";
+import { setGlobalSeed } from "./rng.js";
 import { createGLPost, wantsGLPost, type GLPost } from "./glpost.js";
 
 /** One shot in the edit, after time resolution. */
@@ -95,6 +96,11 @@ export interface EngineOptions {
   timebase: TimebaseData;
   shots: readonly ShotDeclaration[];
   style: string;
+  /**
+   * The film-wide seed, normally `project.json::seeds.global`. Folded into every `hash32` call so the declared
+   * seed actually reaches the scenes, which seeded from their own literals until this option existed.
+   */
+  seed?: string | number;
   assets?: AssetResolver;
   /** Disable the film-grain finish pass. Seam comparison MUST run with grain off. */
   noGrain?: boolean;
@@ -170,6 +176,8 @@ export class Engine {
     this.shutter = options.shutter ?? 0.5;
     this.styleName = options.style;
     this.styleDef = styles.require(options.style);
+    // The film-wide seed. `seeds.global` is required by the schema, and until this line existed nothing read it.
+    setGlobalSeed(options.seed);
 
     const ctx = options.canvas.getContext("2d", { alpha: false });
     if (!ctx) throw new Error("the canvas has no 2-D context");

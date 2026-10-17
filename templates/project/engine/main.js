@@ -236,6 +236,9 @@ async function main() {
     timebase,
     shots: timeline.shots,
     style: project.style ?? "minimal-paper",
+    // The film-wide seed. Declared REQUIRED by the schema and, until this line, read by nothing: the scenes
+    // seeded from their own literals, so the project-level seed reached no pixel.
+    seed: project.seeds?.global,
     dpr: Number(new URLSearchParams(location.search).get("dpr") ?? 1),
     samples: Number(new URLSearchParams(location.search).get("samples") ?? 1),
     noGrain: new URLSearchParams(location.search).has("nograin"),

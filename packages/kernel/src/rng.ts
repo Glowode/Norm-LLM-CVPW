@@ -10,9 +10,38 @@
  * exists to prevent.
  */
 
+/**
+ * The film-wide seed every hash is folded through.
+ *
+ * `project.json::seeds.global` was declared, marked REQUIRED by the schema, and read by nothing: the engine
+ * seeded from string and index literals inside each scene, so the project-level seed never influenced a pixel.
+ * That is the same defect as an unimplemented `bloom`, and worse, because validation vouched for it.
+ *
+ * Folding it in HERE rather than in each scene is the whole point: every seeded value in every scene funnels
+ * through `hash32`, so one line makes the declared seed real everywhere at once. A per-scene change would have
+ * to be remembered by every future scene author, which is a rule that gets forgotten.
+ *
+ * Set once at boot from the project, never mutated afterwards, so a frame remains a pure function of
+ * `(t, project)` - which is what `docs/SPEC.md` D1 actually promises.
+ */
+let globalSeed = "";
+
+/** Set the film-wide seed. Called once by the engine at boot; not part of the per-frame path. */
+export function setGlobalSeed(seed: string | number | undefined): void {
+  globalSeed = seed === undefined || seed === "" ? "" : typeof seed === "number" ? numberToKey(seed) : String(seed);
+}
+
+/** The seed in effect, for a diagnostic that needs to say which film it measured. */
+export function getGlobalSeed(): string {
+  return globalSeed;
+}
+
 /** FNV-1a, 32-bit. The base hash for turning strings and numbers into integer keys. */
 export function hash32(input: string | number): number {
-  const s = typeof input === "number" ? numberToKey(input) : input;
+  const raw = typeof input === "number" ? numberToKey(input) : input;
+  // Prefixing rather than mixing keeps the empty-seed case byte-identical to the pre-seed behaviour, so a
+  // project that declares no seed renders exactly as it did before this existed.
+  const s = globalSeed === "" ? raw : `${globalSeed}\u0000${raw}`;
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);

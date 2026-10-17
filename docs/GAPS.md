@@ -36,7 +36,7 @@ rows.
 
 ---
 
-## 2. `project.json::seeds` is declared, required, and read by nothing
+## 2. FIXED: `project.json::seeds` was declared, required, and read by nothing
 
 ```json
 "seeds": { "type": "object", "additionalProperties": false, "required": ["global"], ... }
@@ -61,9 +61,22 @@ function of `t`, and the *project-level* seed a film declares has never influenc
 This is the same defect class as `bloom`, and it is worse, because the schema marks `global` as **required** —
 which means validation actively vouches for a value nothing consumes.
 
-**Not fixed here**, deliberately: folding a global seed into the seeded generators changes every frame of every
-film, which invalidates every `qa/gold.json` in existence. It needs its own change, its own re-baseline and its own
-note in `docs/PROGRESS.md` — not a line item at the end of an audit.
+**FIXED, in its own change with its own re-baseline.** The seed is folded into `hash32` — the single funnel every
+seeded value in every scene passes through — rather than into each scene, because a per-scene rule is a rule every
+future scene author has to remember. `EngineOptions.seed` carries it; `engine/main.js` reads
+`project.seeds?.global`.
+
+Verified four ways:
+
+| check | result |
+|---|---|
+| a baseline taken before the change | **10 of 11 frames differ** |
+| changing `seeds.global` 20261011 -> 20261012 | **FAIL**, the film changes |
+| restored seed against a fresh baseline | **ok, compared 11, differing 0** |
+| every scene with no declared seed | unchanged: an empty seed leaves `hash32` byte-identical to before |
+
+That last row is the compatibility guarantee: a project that declares no seed renders exactly as it did before this
+existed, so the change is only visible where a project asked for it.
 
 ---
 
