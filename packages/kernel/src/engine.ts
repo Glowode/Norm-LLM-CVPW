@@ -732,6 +732,48 @@ export class Engine {
     if (!this.options.noGrain && post.grain && post.grain > 0) {
       this.drawGrain(g, post.grain, frame);
     }
+    // `bloom` was declared in `timeline.schema.json`, used by the template's own timeline, and **silently
+    // ignored** — the schema accepted it, so nothing warned. That is the exact class of defect this framework
+    // forbids (A4: a key is caught, never quietly dropped), and it went unnoticed for as long as it did because
+    // validation was doing its job on the wrong side of the boundary.
+    //
+    // This is a real bloom, not a stand-in: a blurred copy of the frame screened over itself lifts highlights
+    // into a halo. It is NOT physically correct — a film-grade bloom thresholds the bright areas first and
+    // blurs them at several radii, which needs a WebGL chain and is why `docs/ARCHITECTURE.md` reserves that for
+    // phase 2. What it does is make the declared value control something visible, which is the minimum a
+    // contract owes its callers.
+    if (post.bloom && post.bloom > 0) {
+      const layer = this.acquire();
+      const lg = layer.ctx;
+      lg.setTransform(1, 0, 0, 1, 0, 0);
+      lg.globalCompositeOperation = "source-over";
+      lg.globalAlpha = 1;
+      lg.filter = "none";
+      lg.clearRect(0, 0, w, h);
+      lg.drawImage(this.canvas, 0, 0);
+
+      g.save();
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.globalCompositeOperation = "screen";
+      g.globalAlpha = clamp01(post.bloom);
+      // The blur radius scales with the frame so a 4K render blooms by the same proportion, not by the same
+      // pixels — the same reasoning as `layout.type()`.
+      g.filter = `blur(${Math.max(2, Math.round(Math.min(w, h) * 0.012))}px)`;
+      g.drawImage(layer.canvas, 0, 0);
+      g.filter = "none";
+      g.restore();
+      this.release(layer);
+    }
+
+    // Anything a project declares that this engine does not honour is named, once, as a warning. The keys are
+    // checked against the set actually implemented above, so adding a key to the schema without implementing it
+    // produces a complaint rather than a silent no-op.
+    const honoured = new Set(["vignette", "tint", "grain", "bloom"]);
+    for (const key of Object.keys(post)) {
+      if (honoured.has(key)) continue;
+      const message = `post.${key} is declared but this engine does not implement it, so it has no effect`;
+      if (!this.warnings.includes(message)) this.warnings.push(message);
+    }
   }
 
   /**

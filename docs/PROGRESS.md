@@ -107,7 +107,39 @@ measured timebase, resolved cuts, reproducible render, gates, baseline, delivery
 **What it does not close:** `av.sync` still measures only container-level offsets, not wave-
 form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
 right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
-### 3. Every command is implemented and the whole pipeline runs
+### 3. `bloom` was declared, used, and silently ignored — half fixed, and the other half is an OPEN DEFECT
+
+Found while surveying phase 2, and it is the same class of bug as the palette index that started this session:
+a key that validates, appears in the template, and does nothing.
+
+| | |
+|---|---|
+| `timeline.schema.json` declares | `bloom`, `grain`, `tint`, `vignette` |
+| the engine honoured | `grain`, `tint`, `vignette` |
+| the example's timeline uses | `post: { bloom: 0.35 }` on `s03_burst` |
+
+The schema accepted it, so nothing warned. That is worse than an unknown key, because validation vouched for it.
+
+**Fixed and verified:** the engine now names any declared post key it does not honour, as a warning. Verified —
+`engine.warnings` is empty on the example, which means every post key in use is implemented.
+
+**Implemented but NOT verified:** a bloom pass (blurred copy of the frame screened over itself at the declared
+strength). `bloom: 0.35` does reach the engine — `window.engine.resolved` shows it on `s03_burst` — but the
+picture does not change: a `qa/gold.json` baseline taken *before* the change still passes with 11/11 witnesses
+identical, and it should have failed.
+
+So the bloom code is present and has no effect. The cause is not established. The candidates, cheapest first:
+
+1. The pass throws inside `this.acquire()` and is swallowed by the surrounding error handling — the layer pool
+   reports leaks, so check `engine.warnings` for a layer message on a **rendered** film rather than a probed one.
+2. `g.filter` is ignored in this headless context, and `screen` at alpha 0.35 over an already-blurred copy of
+   itself is too subtle to move a 16×16-quantised hash — possible, and testable by setting `bloom: 1.0`.
+3. The vendored kernel in the project being measured was not the rebuilt one.
+
+**Do not treat bloom as working.** The next session should start by setting `bloom: 1.0` in a copy of the
+timeline and re-running the gold check: if it still passes, the pass is not running at all and candidate 1 is the
+answer.
+### 4. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
 manifest in fourteen steps with no failures:
