@@ -107,50 +107,47 @@ measured timebase, resolved cuts, reproducible render, gates, baseline, delivery
 **What it does not close:** `av.sync` still measures only container-level offsets, not wave-
 form cross-correlation, and says so in its own output. A film whose audio was muxed from the right file at the
 right offset but whose *content* is not the intended take would pass. That is a known, stated limitation.
-### 3. OPEN DEFECT: `bloom` is declared in the schema and used by the template, and does nothing
+### 3. OPEN DEFECT: `bloom` — and the diagnosis so far was measured with a broken instrument
 
-Found while surveying phase 2. Same class as the palette index that started this session: a key that validates,
-appears in the template, and has no effect.
+`bloom` is declared in `timeline.schema.json`, used by the template (`post.bloom = 0.35` on `s03_burst`), and
+has no visible effect. But **every "measurement" of it in this session used an instrument that cannot see the
+thing it was measuring**, and that has to be stated before anything else is claimed.
 
-| | |
+**The instrument was `window.engine.resolved`.** Mutating a post value on that object and re-rendering changes
+nothing:
+
+| `resolved[2].post.vignette` set to | corner luminance at frame 130 |
 |---|---|
-| `timeline.schema.json` declares | `bloom`, `grain`, `tint`, `vignette` |
-| the engine honours | `grain`, `tint`, `vignette` |
-| the example's timeline uses | `post: { bloom: 0.35 }` on `s03_burst` |
+| 0.34 (the declared value) | 20.3333 |
+| 0 | 20.3333 |
+| 1 (maximum) | 20.3333 |
 
-The schema accepts it, so nothing warns. **Worse than an unknown key, because validation vouched for it.**
+**Identical.** A vignette at 1.0 versus 0 must change a corner by tens of levels, so `resolved` is an
+*inspection copy* — the object `finish()` reads is not this one. Consequences:
 
-**What was measured, in order:**
+- "`bloom: 0.35` reaches the engine, `resolved` shows it" — **not evidence**. It shows it in a copy.
+- "toggling bloom moved luminance by 0.0024 at full strength" — **invalid**. The toggle did nothing; the 0.0024
+  was frame-to-frame noise.
+- The one piece of evidence that still stands is the original one: with the bloom pass in the kernel, a
+  `qa/gold.json` baseline taken beforehand still passed 11/11. That is consistent with "bloom does not run" and
+  inconsistent with "bloom runs and is visible".
 
-1. `bloom: 0.35` reaches the engine — `window.engine.resolved` shows it on `s03_burst`.
-2. A bloom pass was written (blurred copy of the frame screened over itself). Toggled at runtime on one frame:
+**Next session, one test decides it.** Do not touch `resolved`. Put a blatant marker in the pass itself — screen
+the frame with pure white at `alpha = post.bloom` — and run `cvpw check --only determinism.gold` against a
+baseline taken before it. If the baseline still passes, `finish()` is not receiving the shot's post at all and
+the defect is upstream of the drawing. If it fails, the message is right and only the blur is wrong.
 
-   | `post.bloom` | mean luminance at frame 130 |
-   |---|---|
-   | 0 | 39.5906 |
-   | 0.35 | 39.5906 |
-   | 1.0 | 39.5930 |
+Then choose honestly between the two acceptable outcomes:
 
-   **0.0024 of movement at full strength.** The pass runs and contributes nothing.
-3. The pass was then removed and replaced with a warning for any declared post key the engine does not honour.
-   The warning **never fired**, even after rendering a frame inside the shot that declares `bloom` — with
-   `engine.warnings` confirmed to be the live array (`private readonly warnings` at engine.ts:157, and
-   `meta.warnings` is a spread copy at :257).
+1. **Implement it properly** — a threshold plus a multi-radius blur, which is the WebGL2 chain phase 2 reserves.
+2. **Remove `bloom` from `timeline.schema.json` and from the template.** A key that cannot work should not be
+   declarable. This is the honest option if (1) is not affordable, and it is strictly better than the current
+   state where validation vouches for a key that does nothing.
 
-So the engine reaches `finish()` — vignette and grain visibly work — with a `post` object that contains
-`bloom`, and neither the drawing nor the warning inside that block takes effect. **Both changes were reverted
-rather than shipped**: a warning that has never been observed to fire is the same defect it was meant to catch.
-
-**Next session, in this order:**
-
-1. Put a `throw new Error("reached")` at the top of the declared-key loop and render a burst frame. If it does
-   not throw, `finish()` is not receiving the shot's post and the bug is upstream of it — check whether
-   `resolveSceneArgs`'s post merge survives into `ResolvedShot` at the moment `finish` reads it.
-2. If it does throw, `this.warnings` is not the array the page exposes; read `engine.meta.warnings` after a
-   render instead of `engine.warnings`.
-3. Only then decide whether to implement bloom properly (needs a threshold and a multi-radius blur — the WebGL2
-   chain phase 2 reserves) or to leave it unwarned and remove it from the schema. **Removing it from the schema is
-   the honest option if it cannot be implemented**, because a key that cannot work should not be declarable.
+**The general lesson, which cost more than the bloom bug:** an instrument that silently reads a copy produces
+confident, precise, entirely wrong numbers. This session has now produced four of those — a BOM, a stale
+`report.output`, a PowerShell parse error that skipped an edit, and this. The rule they all point at: **verify
+that the thing you are measuring is the thing that runs, before trusting any number about it.**
 ### 4. Every command is implemented and the whole pipeline runs
 
 **All twenty commands are real**, and a scaffolded project goes from an empty directory to a delivery
