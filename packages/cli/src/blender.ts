@@ -348,6 +348,7 @@ export async function runBlender(install: BlenderInstall, request: RenderRequest
     log = `${failure.stdout ?? ""}\n${failure.stderr ?? failure.message ?? String(error)}`;
     code = typeof failure.code === "number" ? failure.code : null;
   }
+  const startedAt = started;
   const elapsedMs = Date.now() - started;
   await rm(work, { recursive: true, force: true }).catch(() => undefined);
 
@@ -382,7 +383,10 @@ export async function runBlender(install: BlenderInstall, request: RenderRequest
     for (const entry of entries) {
       if (!/\.(png|exr|jpg|jpeg)$/i.test(entry)) continue;
       const info = await stat(join(directory, entry)).catch(() => null);
-      if (info && info.size > 0) produced++;
+      // Only files this run could have written. A reused output directory is normal — a re-render goes to the
+      // same place — and counting the previous run's frames would let a render that produced nothing inherit
+      // their evidence. The two-second slack absorbs a filesystem whose timestamps are coarser than the clock.
+      if (info && info.size > 0 && info.mtimeMs >= startedAt - 2000) produced++;
     }
     if (produced < request.expectFrames) {
       throw new BlenderError(
