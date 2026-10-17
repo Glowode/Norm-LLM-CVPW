@@ -115,6 +115,31 @@ own kind of surprise. That decision needs to be written down, not made in passin
 
 ---
 
+## 5. `text.*` gates sample too few instants to see a shot that exists only at the end
+
+Chasing whether `artist` reaches the canvas produced a bigger finding than the answer.
+
+With the timeline literal removed AND `artist` set to an unwhitelisted string, `text.whitelist` still **passed**
+with `unlisted 0`. The reason is not that the value failed to reach the page — it is that the gate never looks at
+the instant where it is drawn.
+
+`checkTextLayout` samples **28 instants** across the film. The end card occupies 6.5–8.0 s, and the `legibility`
+offender list from the same run names only `s01_open` — the samples cluster early because they are spread over
+shot boundaries and the opening shot is short. So text that appears only in the last shot is **never measured**.
+
+This invalidates the earlier conclusion in section 4 in the honest direction: it is not "wired but inert", it is
+**"unknown, because the instrument does not reach it"** — the fifth time this session that a measurement problem
+was mistaken for a code problem.
+
+**Fix, in order:**
+
+1. `sampleTimes` for the text gates must include **at least one instant inside every shot**, not merely enough
+   instants overall. A gate that can skip a shot is a gate with a blind spot shaped exactly like the defect it
+   would catch.
+2. Then re-run the `artist` experiment. If the value appears, the four-layer wiring was correct all along; if it
+   does not, the wiring is genuinely wrong and the exception seen once on `checkTextLayout` deserves another look.
+3. Only then decide the precedence question: a timeline title and a project `artist` are both authored.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
