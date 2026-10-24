@@ -438,6 +438,39 @@ ran must never look like a check that passed.
 Still unread after this: `render.frameCodec` and `audio.sampleRate` — both declared knobs whose consumer does not
 exist yet.
 
+## 14. `render.frameCodec`: wired, then reverted — PNG capture dies after two frames
+
+The capture format was hard-coded to `jpeg` at **two independent call sites** (the screenshot call and the sink's
+`encoding`), so a project declaring `png` got jpeg and no indication its choice had been ignored. That is a cleaner
+example of the pattern than most: the value was not merely unread, it could not have been read without changing two
+places that each had their own opinion.
+
+Wired it (a `frameCodec` field on `RenderRequest`, one `codec` constant in `runChunk` used by both sites, resolved
+from `project.render.frameCodec` in the CLI). jpeg still rendered fine. `png` did not:
+
+```
+1/30 frames  eta 316s
+2/30 frames  eta 165s
+2/30 frames  eta 174s
+```
+
+It stops after two frames, and the error is swallowed by the progress output — the stack trace ends in
+`render (render.js:182)` with no message. **Reverted** rather than shipped broken; the tree renders again.
+
+**What the next attempt needs:**
+
+1. **Get the error.** The progress printer runs on stderr and the exception message is not reaching it. Run the same
+   render with progress disabled, or catch and re-throw with the message intact, before guessing at a cause.
+2. **Check the sink.** `FrameSink` maps `jpeg` to `.jpg` and `png` to `.png`; the frame-count and range guards in
+   `close()` are the documented place where a mismatch surfaces, and a PNG frame is roughly ten times the size of
+   the same JPEG frame — so a buffer or a per-frame size assumption is a plausible suspect.
+3. **Check the disk.** A 240-frame PNG sequence at 1080p is on the order of gigabytes, not the 0.4 MiB the jpeg run
+   wrote. `render.diskSpace` now exists and would catch an honest shortfall, but the demo declares a budget that
+   the jpeg path satisfies easily and a PNG path might not.
+
+`render.frameCodec` therefore remains declared and unread. It is the last of the three, and unlike `audio.sampleRate`
+it is clearly wanted — the schema says so, the example sets it, and the renderer simply disagrees.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
