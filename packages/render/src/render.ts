@@ -64,8 +64,20 @@ export interface RenderRequest {
   audio?: string;
   /** Lead-in applied AT MUX TIME. */
   audioOffset?: number;
-  /** Quality target passed to the encoder. */
-  quality?: number;
+  /**
+   * Quality of the CAPTURED FRAMES, 0..1. This is a JPEG quality for the intermediate sequence, not an encoder
+   * setting, and it belongs to the capture sink.
+   */
+  frameQuality?: number;
+  /**
+   * Quality target for the VIDEO ENCODER. Interpreted per encoder - `-crf` for x264, `-cq` for NVENC - so the
+   * useful range is roughly 0..51, NOT 0..1.
+   *
+   * These two were a single `quality` field, and the disagreement only surfaced when a project value (0.94) was
+   * passed straight to libx264 as `-crf 0.94`, which it rejects with "Invalid argument". They are different
+   * scales for different stages and now have different names.
+   */
+  encoderQuality?: number;
   /** ASCII-only scratch root for profiles and frames. */
   tempRoot: string;
   /** Refuse to run under a software rasteriser unless this is set. */
@@ -148,7 +160,7 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
   const ffprobe = request.ffprobe;
   if (!ffmpeg) throw new RenderError("render needs an ffmpeg path; pass `ffmpeg` in the request");
   if (!ffprobe) throw new RenderError("render needs an ffprobe path; pass `ffprobe` in the request");
-  const encoder = await probeEncoders({ ffmpeg, quality: request.quality });
+  const encoder = await probeEncoders({ ffmpeg, quality: request.encoderQuality });
   if (!encoder.usable) {
     throw new RenderError(
       `no usable encoder: ${encoder.name} failed with ${encoder.evidence}\n` +
@@ -383,7 +395,7 @@ async function runChunk(
     await browser.flush();
     const screenshot = await browser.screenshot({
       format: "jpeg",
-      quality: 0.94,
+      quality: request.frameQuality ?? 0.94,
       timeoutMs: 180_000,
     });
     const ms = Date.now() - drawStart;

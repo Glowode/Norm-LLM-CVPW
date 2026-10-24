@@ -245,6 +245,52 @@ sink, the CRF belongs to the encoder, and they should never have shared a parame
 `render.frameCodec` remains unread, and `audio.sampleRate` and `budgets.peakDiskGb` likewise. None is a mystery:
 each is a declared knob whose consumer does not exist yet.
 
+## 9. FIXED: `quality` meant two things, and that is why `render.frameQuality` could never be honoured
+
+`RenderRequest.quality` was documented as "quality target passed to the encoder" and used for two different
+quantities: at one call site it became the JPEG quality of the captured frames (0..1), at another it went straight
+to `probeEncoders` as the encoder CRF (0..51). Passing the project's `0.94` produced:
+
+```
+libx264: Task finished with error code: -22 (Invalid argument)
+```
+
+**Split into `frameQuality` (capture sink, 0..1) and `encoderQuality` (encoder CRF).** `render.frameQuality` is now
+read from the project and reaches the capture:
+
+| project `frameQuality` | master size | master hash |
+|---|---|---|
+| 0.94 (declared) | 0.5 MiB | `2F2BA154...` |
+| 0.50 | 0.3 MiB | `5EB1FBB9...` |
+
+Different sizes, different hashes, no encoder error. `--quality` is now explicitly the CRF.
+
+## 10. NEW, and it is a 15x regression the post-chain fix exposed: grain costs 1.4 s per frame
+
+`scene.perf` failed at **p95 1519 ms** against a 160 ms budget on a full render of the example — where the same
+render measured ~88 ms earlier in this project.
+
+Isolating the cause, in order:
+
+| measurement | result |
+|---|---|
+| with the WebGL2 chain | 1506.7 ms/frame |
+| with the chain removed | 1492.8 ms/frame |
+| **with grain disabled in the style** | **97.9 ms/frame** |
+
+So the post chain is not the cost. **`drawGrain` is**, and it always was: it issues one `fillRect` per cell, which
+at 1080p with `step = dpr * 2` is roughly **518,000 draw calls per frame**.
+
+That cost had never appeared because grain never ran — `finish()` was not called on the default path until this
+session fixed it. The fix did not create the problem; it revealed one that was hidden behind a dead code path.
+
+**The fix is known and bounded:** build the grain once per frame as an `ImageData` and `putImageData` it, instead
+of per-cell fills. That keeps determinism (it is already keyed on the frame index, never on `t`) and turns half a
+million calls into one buffer write. Until then, a project that declares grain pays 15x per frame, and a 240-frame
+film takes ten minutes instead of forty seconds.
+
+This is the most valuable thing this audit found, and it was found by a gate that already existed.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:

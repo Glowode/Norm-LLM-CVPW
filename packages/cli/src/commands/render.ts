@@ -278,6 +278,12 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
   if (!ffmpeg.path) throw new ContractError("ffmpeg was not found on PATH; set CVPW_FFMPEG to its full path");
   if (!ffprobe.path) throw new ContractError("ffprobe was not found on PATH; set CVPW_FFPROBE to its full path");
 
+  // `render.frameQuality` (0..1) belongs to the capture sink, not to the encoder. It was declared in the schema
+  // and read by nothing; it is now read, and the reason it could not be read before is that it shared a field name
+  // with the encoder CRF.
+  const declaredFrameQuality = ((await readJson(projectPaths(options.root).projectJson)) as {
+    render?: { frameQuality?: number };
+  } | null)?.render?.frameQuality;
   const startedAt = new Date().toISOString();
   const started = Date.now();
   const outcome = await render({
@@ -302,7 +308,9 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
     output,
     ...(context.audio ? { audio: context.audio } : {}),
     audioOffset: context.audioOffset,
-    ...(options.quality !== undefined ? { quality: options.quality } : {}),
+    // `--quality` is the ENCODER CRF, not the frame quality. The two were one field and are now separate.
+    ...(options.quality !== undefined ? { encoderQuality: options.quality } : {}),
+    frameQuality: declaredFrameQuality,
     tempRoot: context.tempRoot,
     allowSoftware: context.allowSoftware,
     ...(options.onProgress
