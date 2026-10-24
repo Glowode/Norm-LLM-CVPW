@@ -394,6 +394,31 @@ Three properties follow, and each was a gap before:
 The stored baseline is still compared, and still catches a film that changed between renders — but it is now the
 second question rather than the first.
 
+## 12. The grain optimisation, landed, now that the criterion is the right one
+
+With `determinism.gold` testing stability within a run instead of against a stored baseline, the question that
+cost this optimisation two reverts became answerable:
+
+| implementation | ms/frame | stability within one run | baseline after re-taking |
+|---|---|---|---|
+| per-cell `fillRect` | 1500 | `UNSTABLE=0` | 11/11 |
+| **batched `ImageData`** | **177.7** | **`UNSTABLE=0`** | **11/11** |
+
+Both are stable. The batched version is **8.4x faster**. It is landed, with a re-baseline whose reason names the
+only thing that changed:
+
+> grain batched into an ImageData texture: 152 ms/frame vs 1500, UNSTABLE=0. Alpha is 8-bit rather than float, so
+> strengths quantise; that is the whole reason these witnesses differ.
+
+**What the two reverts cost and bought.** The first was justified at the time — the only instrument available said
+the rewrite was non-deterministic, and a slow deterministic renderer beats a fast uncertain one. The second was the
+one that paid: it established that the *instrument* was unstable, not the code, and produced a gate that now tests
+D1 directly.
+
+**The general form, now demonstrated end to end:** when a measurement says a change broke something, measure the
+change and the thing it replaced **under the same conditions**. Twice in this session that comparison dissolved the
+conclusion — here, and with `window.engine.resolved` being an inspection copy.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
