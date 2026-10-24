@@ -204,6 +204,47 @@ A note on the fix itself: passing `×` through a PowerShell command line on this
 twice. The value was finally written by a Node script using `\u00d7`, and verified by code point (`37,d7,34`).
 Console encoding is not a place to be brave.
 
+## 7. `budgets.flashPerSecond` was unread, and the gate that ignored it was mine
+
+Auditing every schema leaf path against the source (41 leaves) found five never mentioned: `$schema` (meta),
+`audio.sampleRate`, `render.frameCodec`, `budgets.peakDiskGb`, `budgets.flashPerSecond`.
+
+The last one was the interesting one, because `AGENTS.md` rule 11 is explicit: **thresholds live in `docs/QA.md` or
+`project.json::budgets`; never invent one inside code.** And `flash.ts` hard-coded `ROUND_TRIPS_PER_SECOND = 3`.
+
+**Fixed.** The gate reads `budgets.flashPerSecond` first and falls back to the `docs/QA.md` default, and it reports
+which one it used:
+
+```
+budget 3, budget from project.json::budgets.flashPerSecond
+```
+
+Verified in both directions: with the project at its declared 3 it passes, and tightening it to **0** makes the same
+film fail — so the project's number is genuinely in force:
+
+```
+FAIL  flash.rate   peak round-trips/s 1, budget 0
+```
+
+## 8. A LATENT BUG my own fix activated: two different `quality` meanings
+
+Wiring `render.frameQuality` into the render call produced:
+
+```
+libx264: Task finished with error code: -22 (Invalid argument)
+```
+
+`RenderRequest.quality` is the **frame quality, 0..1**. `probeEncoders({ quality })` passes it as the encoder's
+**CRF**. Those are different scales, and the conflation had never fired because nothing ever set `quality` from the
+project. My change set it to `0.94` and asked libx264 for `-crf 0.94`.
+
+**The wiring was reverted, not fixed.** A verified-working render is worth more than a half-corrected unit
+conversion, and the conflation deserves its own change with its own test — the frame quality belongs to the capture
+sink, the CRF belongs to the encoder, and they should never have shared a parameter name.
+
+`render.frameCodec` remains unread, and `audio.sampleRate` and `budgets.peakDiskGb` likewise. None is a mystery:
+each is a declared knob whose consumer does not exist yet.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:

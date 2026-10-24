@@ -219,7 +219,13 @@ export async function checkFlash(input: FlashCheckInput): Promise<FlashCheckResu
       { timeoutMs: 900_000 },
     );
     const measurement = analyseFlashes(scanned.samples, scanned.fps || input.fps);
-    const budget = ROUND_TRIPS_PER_SECOND;
+    // The budget comes from the project first, `docs/QA.md` second. Hard-coding 3 was a violation of AGENTS.md
+    // rule 11 - "thresholds live in docs/QA.md or project.json::budgets; never invent one inside code" - and the
+    // audit that found `budgets.flashPerSecond` unread was finding this gate.
+    const projectDoc = (await readJson(projectPaths(input.root).projectJson)) as { budgets?: Record<string, number> };
+    const declared = projectDoc.budgets?.["flashPerSecond"];
+    const budget = typeof declared === "number" ? declared : ROUND_TRIPS_PER_SECOND;
+    const budgetSource = typeof declared === "number" ? "project.json::budgets.flashPerSecond" : "docs/QA.md default";
     const overBudget = (measurement.worst?.roundTrips ?? 0) > budget;
 
     const measured: Record<string, string | number> = {
@@ -227,6 +233,7 @@ export async function checkFlash(input: FlashCheckInput): Promise<FlashCheckResu
       "peak round-trips/s": measurement.worst?.roundTrips ?? 0,
       "peak transitions/s": measurement.worst?.transitions ?? 0,
       budget,
+      "budget from": budgetSource,
       "worst window": measurement.worst ? `${measurement.worst.from.toFixed(3)}–${measurement.worst.to.toFixed(3)} s` : "—",
       "tear / stripe": "not measured — needs spatial frequency analysis, see this module's note",
     };
