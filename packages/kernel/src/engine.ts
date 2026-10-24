@@ -105,6 +105,12 @@ export interface EngineOptions {
   title?: string;
   /** `project.json::titleSub`. */
   titleSub?: string;
+  /**
+   * `project.json::vectors.grid`: draw beat or bar guides over the frame. A PLANNING aid, so it only ever appears
+   * with `overlay`, which is review-only and never in a master. Declared in the schema and in CONTRACTS.md as
+   * "planning drawing aid" and read by nothing until now.
+   */
+  grid?: "none" | "beats" | "bars";
   assets?: AssetResolver;
   /** Disable the film-grain finish pass. Seam comparison MUST run with grain off. */
   noGrain?: boolean;
@@ -902,6 +908,25 @@ export class Engine {
   private drawOverlay(g: CanvasRenderingContext2D, t: number, active: readonly ResolvedShot[]): void {
     g.save();
     g.setTransform(1, 0, 0, 1, 0, 0);
+    // The planning grid from `project.json::vectors.grid`, declared in the schema and in CONTRACTS.md as a
+    // "planning drawing aid" and read by nothing until now. Bars are thick and beats thin, so a cut that lands
+    // between beats is visible at a glance - which is the whole purpose of the thing.
+    const grid = this.options.grid ?? "none";
+    if (grid !== "none") {
+      const width = this.canvas.width;
+      const height = this.canvas.height;
+      const drawLine = (seconds: number, alpha: number, thickness: number): void => {
+        if (!(seconds >= 0) || seconds > this.timebase.duration) return;
+        const x = Math.round((seconds / this.timebase.duration) * width);
+        g.fillStyle = `rgba(255,226,142,${alpha})`;
+        g.fillRect(x, 0, thickness, height);
+      };
+      for (const beat of this.timebase.beatTimes) drawLine(beat, 0.35, Math.max(1, this.dpr));
+      if (grid === "bars") for (const bar of this.timebase.barList) drawLine(bar.start, 0.75, Math.max(2, this.dpr * 2));
+      // The playhead, so the guides can be read against the instant being reviewed.
+      g.fillStyle = "rgba(255,255,255,0.55)";
+      g.fillRect(Math.round((t / this.timebase.duration) * width) - 1, 0, Math.max(2, this.dpr * 2), height);
+    }
     const size = Math.round(this.dpr * 22);
     g.font = `${size}px monospace`;
     const lines = [

@@ -241,6 +241,10 @@ async function main() {
     seed: project.seeds?.global,
     title: project.artist ?? "",
     titleSub: project.titleSub ?? "",
+    // project.json::vectors.grid - beat or bar guides, a planning aid that only appears with overlay.
+    // `?grid=beats|bars|none` overrides the project value, so a reviewer can turn the guides on without
+    // editing project.json.
+    grid: new URLSearchParams(location.search).get("grid") ?? project.vectors?.grid ?? "none",
     dpr: Number(new URLSearchParams(location.search).get("dpr") ?? 1),
     samples: Number(new URLSearchParams(location.search).get("samples") ?? 1),
     noGrain: new URLSearchParams(location.search).has("nograin"),

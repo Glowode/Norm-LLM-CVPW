@@ -211,6 +211,22 @@ export class Timebase {
 
   private readonly resolutionCache = new Map<string, Resolution>();
 
+  /**
+   * Beat times in seconds, for the planning grid (`project.json::vectors.grid`).
+   *
+   * Exposed read-only because the grid is a DRAWING aid and must never influence a resolve: a scene that read
+   * beats directly could produce a frame that changes when the analysis is re-run with different settings. The
+   * overlay uses it; scenes get moments through time expressions instead.
+   */
+  get beatTimes(): readonly number[] {
+    return this.beats;
+  }
+
+  /** Bars, for the planning grid. `index` is authoritative; never assume `bars[i].index === i`. */
+  get barList(): readonly Bar[] {
+    return this.bars;
+  }
+
   constructor(data: TimebaseData) {
     if (!(data.duration > 0) || !Number.isFinite(data.duration)) {
       throw new TimeExpressionError("<timebase>", "duration", "syntax", "duration must be a positive finite number");
