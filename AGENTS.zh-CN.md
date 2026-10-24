@@ -177,6 +177,10 @@ skill 知道自己的哪些参考文档有用，而你现在还不知道。
 | `cvpw lint` | 静态审计：禁用 API（基于 AST）、编码、绝对时间、坐标字面量、文本白名单。 |
 | `cvpw handoff` | 接缝 `A\|REF\|B` 对照条与数值评级，写入 `handoff.json::measured`。 |
 | `cvpw deliver` | 最终检查、多版本、交付清单。 |
+| `cvpw renderer` | 探测浏览器真实的 WebGL 渲染器（厂商、驱动、硬件还是软件）。单独运行 `doctor` 会报告的那一项，用于诊断一台机器。 |
+| `cvpw gold` | 取用或比对 `qa/gold.json` 里的确定性基线。取基线时 `--reason` 是必填的：没有记录理由的基线，与一次意外无法区分。 |
+| `cvpw link` | 把框架内核 vendor 进一个已存在的项目。相当于 `cvpw new` 对新建项目所做的那一步。 |
+| `cvpw review` | 评审产物：stills 加上一次评审必须留在 `review/report.json` 里的清单。没有清单的评审不算评审。 |
 | `cvpw skill install` | 把 Skill 包安装到某个平台。 |
 
 ---

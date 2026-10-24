@@ -188,6 +188,10 @@ Every command: `--json` prints one JSON envelope on stdout; logs go to stderr; e
 | `cvpw lint` | Static audit: banned APIs (AST-based), encoding, absolute times, layout literals, text whitelist. |
 | `cvpw handoff` | Seam `A\|REF\|B` strips and numeric grades → `handoff.report.json` (the contract `handoff.json` is authored, never written by a tool). |
 | `cvpw deliver` | Final checks, variants, delivery list. |
+| `cvpw renderer` | Probe the browser's real WebGL renderer (vendor, driver, hardware vs software). What `doctor` reports, on its own, for a machine you are diagnosing. |
+| `cvpw gold` | Take or compare the determinism baseline in `qa/gold.json`. `--reason` is required when taking one: a baseline without a recorded reason cannot be told from an accident. |
+| `cvpw link` | Vendor the framework kernel into an existing project. What `cvpw new` does for a fresh one. |
+| `cvpw review` | Review artefacts: stills plus the manifest a review must leave in `review/report.json`. A review with no manifest is not a review. |
 | `cvpw skill install` | Install a skill bundle into a platform. |
 
 ---

@@ -533,6 +533,34 @@ Both render, they differ, and `determinism.gold` still reports `ok=True, UNSTABL
 codec; it was a filename pattern. The first attempt recorded three candidate causes and all three were wrong, because
 none of them could be tested without the message. Getting the message was the whole job.
 
+## 16. Commands: four registered, undocumented — and the last audit caveat is now closed
+
+Extracting only the top-level `register({ ... help: { name: ... } })` calls — instead of every `name:` in the file,
+which counts flags — gives **21 commands**. `AGENTS.md` documented **16**.
+
+Four were missing entirely from the agent entry document, and three of them from `README` too:
+
+| command | what it does | why its absence mattered |
+|---|---|---|
+| `renderer` | probe the browser's real WebGL renderer | the thing to run when a render behaves oddly on one machine |
+| `gold` | take/compare the determinism baseline | **a core workflow step**, absent from the document that describes the workflow |
+| `link` | vendor the kernel into an existing project | the path for every project not created by `cvpw new` |
+| `review` | stills plus the manifest a review must leave | rule 6 says a review with no manifest is not a review, and the command that writes it was undocumented |
+
+Added to `AGENTS.md` and its Chinese mirror. **A drifting mirror is a bug in the mirror** (§8), so both were edited
+in the same change.
+
+One apparent fifth gap — `sheet` — is a **false positive in the audit itself**: `AGENTS.md` documents it in the
+combined row `cvpw stills / sheet / review`, and a regex anchored on the first command of a row cannot see it. Worth
+recording: the audit that found four real gaps also produced one wrong one, and the difference was visible only by
+reading the table.
+
+`README.md` has no command table by design — it defers to `AGENTS.md` at line 68 — so its silence about `renderer`,
+`gold` and `link` is not the same defect.
+
+**This closes the last item on the audit's own list of things it does not cover.** What remains there is the honest
+boundary rather than a to-do: sub-fields of keys that *are* read.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
