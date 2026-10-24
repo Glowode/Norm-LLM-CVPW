@@ -328,6 +328,39 @@ CURRENT per-cell implementation. If its first sample also differs, cause 2 is re
 not guilty of it, and the only remaining issue is the alpha quantisation — which is a documented re-baseline, not a
 bug.
 
+
+### 10b. That conclusion did not survive re-measurement, and the correction matters more than the optimisation
+
+The batched grain was re-applied after the three-render probe showed the per-cell version has the same
+first-sample difference. Re-measured:
+
+| implementation | ms/frame | gold after a fresh baseline |
+|---|---|---|
+| per-cell | 1500 | 11/11, **twice** — and once **1 differing** |
+| batched `ImageData` | **152.6** | **2 differing** |
+
+The per-cell version does NOT reliably pass 11/11 either. Earlier in this session it did, on a quiet machine; with
+several heavy renders running it reported one differing witness. So **the instrument cannot distinguish the two
+implementations under these conditions**, and the earlier statement that the rewrite made the renderer
+non-deterministic was never established — it was two unstable measurements being compared as if one were a
+baseline.
+
+**THE INSTRUMENT WAS CONTAMINATED**, and the honest result is: the batched version is 10x faster and its
+determinism is UNKNOWN. The per-cell version is slow and its determinism is INTERMITTENTLY CONFIRMED.
+
+What follows from that:
+
+1. **`determinism.gold` needs a quiet run to mean anything.** A gate whose pass depends on what else the machine is
+   doing is not a gate yet. It should either measure and report machine load, or render its witnesses twice in one
+   run and compare them to each other rather than to a stored baseline — the second needs no baseline and is the
+   stronger test of the property the framework actually promises.
+2. Only after that is fixed can the batched grain be judged. It should be re-applied then, not before.
+3. The performance finding stands regardless: grain costs ~1400 ms/frame at 1080p and that is 15x the rest of the
+   frame.
+
+The per-cell version is restored. `docs/adr/0007` already documents first-frame instability; **this is the same
+problem one level up — an unstable MEASUREMENT, not an unstable renderer.**
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
