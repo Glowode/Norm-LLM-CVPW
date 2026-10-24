@@ -987,21 +987,33 @@ export async function runChecks(
     const result = await checkDeterminism(context.root);
     outcomes.push({
       id: "determinism.gold",
-      title: "every witnessed frame still hashes to its baseline",
+      title: "every witnessed frame is stable within a run and still hashes to its baseline",
       ok: result.ok,
       measured: {
         compared: result.compared,
         differing: result.differing.length,
+        // Captured twice in ONE run: if these are non-zero the renderer is not a function of `t`, which no baseline
+        // can excuse.
+        unstable: result.unstable?.length ?? 0,
         renderer: result.renderer,
         ...(result.goldRenderer && result.goldRenderer !== result.renderer
           ? { "gold renderer": result.goldRenderer }
           : {}),
       },
-      offenders: result.differing.slice(0, 12).map((diff) => ({
-        code: "frame.changed",
-        where: `frame ${diff.frame}`,
-        detail: `expected ${diff.expected}, observed ${diff.observed}`,
-      })),
+      offenders: [
+        ...(result.unstable ?? []).slice(0, 12).map((diff) => ({
+          code: "frame.unstable",
+          where: `frame ${diff.frame}`,
+          detail:
+            `two captures of this frame in the SAME run hashed ${diff.first} then ${diff.second}. A frame is a pure ` +
+            `function of t (docs/SPEC.md D1), so this fails regardless of any baseline.`,
+        })),
+        ...result.differing.slice(0, 12).map((diff) => ({
+          code: "frame.changed",
+          where: `frame ${diff.frame}`,
+          detail: `expected ${diff.expected}, observed ${diff.observed}`,
+        })),
+      ],
       ...(result.skipped ? { skipped: result.skipped } : {}),
     });
   }

@@ -361,6 +361,39 @@ What follows from that:
 The per-cell version is restored. `docs/adr/0007` already documents first-frame instability; **this is the same
 problem one level up — an unstable MEASUREMENT, not an unstable renderer.**
 
+## 11. FIXED: `determinism.gold` now tests the property, not the machine
+
+The gate compared witnesses against `qa/gold.json`. That measures **the machine as much as the renderer**: a
+baseline taken on an idle machine, checked on a busy one, reports differing frames that no code change explains.
+It happened twice in this session with identical code — 11/11 once, 1 differing later.
+
+`checkDeterminism` now captures every witness **twice inside one run** and compares the two to each other before
+touching the baseline. Two captures of one frame in one session must agree; if they do not, the renderer is not a
+function of `t` and no baseline can excuse it.
+
+| renderer | result |
+|---|---|
+| the project as it stands | `ok=True, compared=11, differing=0, UNSTABLE=0` |
+| a scene with `Date.now()` in the title x-offset | `ok=False, UNSTABLE=1`, naming frame 216 and both hashes |
+
+The second row is the one that makes the first mean anything. The offender reads:
+
+```
+frame.unstable  frame 216  two captures of this frame in the SAME run hashed
+                           33075e7c93de2977 then 8c4a77a226f1
+```
+
+Three properties follow, and each was a gap before:
+
+1. **It needs no baseline.** A project with no `qa/gold.json` can still be told whether its renderer is a function
+   of `t`.
+2. **It is load-independent.** Both captures run in the same session under the same conditions.
+3. **It is a direct test of D1**, not a proxy. A stored hash only ever proves "same as last time", which is what the
+   per-cell grain confusion was actually measuring.
+
+The stored baseline is still compared, and still catches a film that changed between renders — but it is now the
+second question rather than the first.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:

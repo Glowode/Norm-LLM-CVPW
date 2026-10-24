@@ -216,6 +216,8 @@ export interface DeterminismResult {
   ok: boolean;
   compared: number;
   differing: DeterminismDiff[];
+  /** Frames that differed from a SECOND capture of themselves in the same run. Never acceptable. */
+  unstable?: Array<{ frame: number; first: string; second: string }>;
   missing: number[];
   renderer: string;
   goldRenderer?: string;
@@ -260,6 +262,24 @@ export async function checkDeterminism(root: string, options: { reason?: string 
   }
 
   const captured = await captureWitnesses({ root, frames, ...(options.reason ? { reason: options.reason } : {}) });
+
+  // STABILITY FIRST, and independently of any stored baseline.
+  //
+  // Comparing against `qa/gold.json` measures the machine as much as the renderer: the baseline may have been taken
+  // on an idle machine, and a busy one then reports differing witnesses that no code change explains. That happened
+  // twice in this project - a per-cell grain pass reported 11/11 and later 1 differing with identical code.
+  //
+  // So the same witnesses are captured a SECOND time inside this run and compared with each other. Two captures of
+  // one frame in one session must agree; if they do not, the renderer is not a function of `t` and no baseline can
+  // make that acceptable. This test needs no baseline file, which also means it works on a project that has none.
+  const repeat = await captureWitnesses({ root, frames, ...(options.reason ? { reason: options.reason } : {}) });
+  const unstable: Array<{ frame: number; first: string; second: string }> = [];
+  for (const frame of frames) {
+    const a = captured.witnesses.get(frame);
+    const b = repeat.witnesses.get(frame);
+    if (!a || !b) continue;
+    if (a.exact !== b.exact) unstable.push({ frame, first: a.exact, second: b.exact });
+  }
   const differing: DeterminismDiff[] = [];
   const missing: number[] = [];
   for (const frame of frames) {
@@ -275,10 +295,13 @@ export async function checkDeterminism(root: string, options: { reason?: string 
   }
 
   return {
-    ok: differing.length === 0 && missing.length === 0,
+    // A frame that differs from ITSELF inside one run is a hard failure regardless of any baseline: the renderer is
+    // then not a pure function of `t`, which is the promise the whole framework is built on.
+    ok: differing.length === 0 && missing.length === 0 && unstable.length === 0,
     compared: frames.length - missing.length,
     differing,
     missing,
+    unstable,
     renderer: captured.renderer,
     ...(gold.renderer ? { goldRenderer: gold.renderer } : {}),
     gold,
