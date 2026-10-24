@@ -210,13 +210,38 @@ Being explicit about the boundary is the point of this file, so:
 
 - **Schema keys that are read but only partly honoured.** `project.schema.json` has 21 top-level keys; this audit
   proves presence or absence of reads, not that a read uses every declared sub-field.
-- **Time-expression vocabulary.** `docs/CONTRACTS.md` defines `b()`, `cue()`, `h()`, `L()`, `VOX()`, `HIT()`,
-  `S()`, `STOP()`, `p()`. All were exercised by unit tests earlier, but this audit did not re-derive that list
-  from the document and diff it against the parser.
-- **`docs/WORKFLOW.md`'s file promises.** Stage 5 and 6 name files a project should have; only `docs/BLOCKS.md` and
-  `docs/STORYBOARD.md` were checked in this session.
 - **Command flags.** 64 `name:` occurrences were extracted, but most are flags rather than commands, so that count
   says nothing yet. A real command audit needs to read the top-level `register()` calls specifically.
+
+## Two of the four blind spots, now checked
+
+**Time-expression vocabulary: consistent.** Re-derived from `docs/CONTRACTS.md` and diffed against the parser:
+
+| | |
+|---|---|
+| declared in CONTRACTS.md | `b`, `cue`, `h`, `L`, `VOX`, `HIT`, `S`, `STOP`, `p` — 9 |
+| recognised by `time.ts` | the same 9 |
+| declared but not parsed | **none** |
+
+**`docs/WORKFLOW.md` file promises: one real gap, fixed.** Auditing every project-relative path the workflow names
+against `examples/minimal` found four authored documents missing, and the cause was worse than the symptom:
+**`templates/project/` had no `docs/` directory at all**, so `cvpw new` never created them.
+
+That matters because `docs/SPEC.md` section 10 requires a `docs/PROGRESS.md` deviation log in every project, and a
+new project could not have one. Stage 1's deliverables — `BRIEF.md` and `CONCEPT.md` — had the same problem.
+
+Added to `templates/project/docs/` and copied to the example:
+
+| file | what it is for |
+|---|---|
+| `BRIEF.md` | the five Stage 1 answers, including "what this film will NOT do" — a brief with no refusal has not decided anything |
+| `CONCEPT.md` | palette by role, master shapes, typography rules, texture, motion |
+| `PROGRESS.md` | the deviation log, empty table ready |
+| `INTEGRATION_NOTES.md` | shared-file requests, so a block author does not edit `project.json` |
+
+Verified: `cvpw new <dir>` now scaffolds **18** template files, four of them in `docs/`, and the example still
+passes 29/29 gates.
+
 
 ---
 
