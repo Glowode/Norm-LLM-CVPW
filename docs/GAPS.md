@@ -291,6 +291,43 @@ film takes ten minutes instead of forty seconds.
 
 This is the most valuable thing this audit found, and it was found by a gate that already existed.
 
+### 10a. The batched-grain rewrite: 10.7x faster, and reverted because it broke determinism
+
+Attempted the fix section 10 describes — one `ImageData` per frame, `putImageData`, then a single upscaled
+`drawImage` under the same `overlay` composite.
+
+| | ms/frame |
+|---|---|
+| per-cell `fillRect` (current) | 1500 |
+| batched `ImageData` | **140** |
+| grain disabled entirely | 98 |
+
+A 10.7x speedup, and **reverted anyway**:
+
+```
+same frame rendered three times:  8c06b5e5  2617b159  2617b159
+stable: false
+```
+
+The first render differs from the second and third. The gold baseline failed 7 of 11 witnesses even after a fresh
+baseline was taken — so the rewrite made the renderer non-deterministic, and a fast non-deterministic renderer
+violates the framework's central promise more seriously than a slow deterministic one. 1500 ms with a proven
+baseline beats 140 ms with an unproven one.
+
+Two candidate causes, neither investigated because both need a change of their own:
+
+1. **`ImageData` alpha is 8-bit; CSS `rgba()` alpha is float.** The rewrite quantises grain strength, so the pixels
+   cannot match the baseline exactly — that alone explains the 7 differing witnesses, and it is a *deliberate*
+   change that needs its own re-baseline with its own note.
+2. **First-render instability**, which `docs/adr/0007` already names and `warmupFrames: 2` already compensates for
+   in the render path. The three-render probe above does no warm-up, so its first-sample difference may be exactly
+   that known effect rather than anything the rewrite introduced.
+
+**The next attempt should separate those two questions before changing any code:** run the three-render probe on the
+CURRENT per-cell implementation. If its first sample also differs, cause 2 is real and pre-existing, the rewrite is
+not guilty of it, and the only remaining issue is the alpha quantisation — which is a documented re-baseline, not a
+bug.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
