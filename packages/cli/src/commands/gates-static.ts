@@ -230,3 +230,61 @@ export async function gateRegistry(root: string, storyboard: StoryboardResult | 
     })),
   };
 }
+/**
+ * `render.diskSpace` — the volume can hold what the project says it needs.
+ *
+ * `budgets.peakDiskGb` was declared in the schema and read by nothing. It is worth honouring because running out of
+ * disk fails a render at the WORST possible moment: after the frames are drawn, during the encode, leaving a
+ * truncated file that `render.frameCount` then has to explain. A pre-flight check costs one `statfs` and turns a
+ * forty-second failure into an immediate one.
+ *
+ * A project that declares no budget skips with that reason rather than passing on an assumption — the framework's
+ * rule is that a check which never ran must never look like a check which passed.
+ */
+export async function gateDiskSpace(root: string): Promise<StaticGate> {
+  const base = { id: "render.diskSpace", title: "the volume has the disk space the project budgets for" };
+  const projectPath = projectPaths(root).projectJson;
+  if (!existsSync(projectPath)) {
+    return { ...base, ok: true, measured: {}, offenders: [], skipped: "no project.json" };
+  }
+  const project = (await readJson(projectPath)) as { budgets?: Record<string, number> };
+  const declared = project.budgets?.["peakDiskGb"];
+  if (typeof declared !== "number" || !(declared > 0)) {
+    return {
+      ...base,
+      ok: true,
+      measured: { declared: "(none)" },
+      offenders: [],
+      skipped: "project.json declares no budgets.peakDiskGb, so there is no figure to check against",
+    };
+  }
+  const { diskFreeGb } = await import("../doctor.js");
+  const free = diskFreeGb(root);
+  if (free === null) {
+    return {
+      ...base,
+      ok: true,
+      measured: { declared: `${declared} GiB`, free: "unknown" },
+      offenders: [],
+      skipped: "the volume's free space could not be read on this platform",
+    };
+  }
+  return {
+    ...base,
+    ok: free >= declared,
+    measured: { declared: `${declared} GiB`, free: `${free.toFixed(1)} GiB` },
+    offenders:
+      free >= declared
+        ? []
+        : [
+            {
+              code: "disk.too-full",
+              where: `volume holding ${root}`,
+              detail:
+                `${free.toFixed(1)} GiB free but the project budgets ${declared} GiB. Failing here rather than ` +
+                `during the encode: running out mid-render leaves a truncated master that only frameCount can ` +
+                `explain afterwards.`,
+            },
+          ],
+  };
+}

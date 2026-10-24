@@ -419,6 +419,25 @@ D1 directly.
 change and the thing it replaced **under the same conditions**. Twice in this session that comparison dissolved the
 conclusion — here, and with `window.engine.resolved` being an inspection copy.
 
+## 13. `budgets.peakDiskGb` — checked before the render instead of during it
+
+The third of the three unread knobs, and the one with the worst failure mode: running out of disk fails a render
+**after** the frames are drawn, during the encode, leaving a truncated master that only `render.frameCount` can
+explain afterwards.
+
+`render.diskSpace` reads `budgets.peakDiskGb` and compares it with the free space on the project's volume.
+
+| budget | free | verdict |
+|---|---|---|
+| 5 GiB (the example's) | 28.7 GiB | **ok** |
+| 100000 GiB | 28.7 GiB | **FAIL**, `disk.too-full` |
+
+A project that declares no budget skips with that reason rather than passing on an assumption: a check that never
+ran must never look like a check that passed.
+
+Still unread after this: `render.frameCodec` and `audio.sampleRate` — both declared knobs whose consumer does not
+exist yet.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:

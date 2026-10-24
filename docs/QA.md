@@ -95,6 +95,8 @@ from captured bytes, for the reason [ADR 0007](./adr/0007-warmup-frames-and-firs
 (AGENTS.md level 4), so a gate that exists only in code is a gate an agent cannot know to run. `render.postApplied`
 is the one that found the post-processing chain which had never executed in the engine's life — the most valuable
 gate in the suite was the one least documented, which is exactly how a suite drifts away from its own rules.
+| `render.diskSpace` | 5 | free space on the project volume is at least `project.json::budgets.peakDiskGb` | `cvpw check` | `disk.too-full <volume>` | yes |
+
 **`flash.rate` is two-tier, and the second tier is not a warning.** The budget is 3 large-area luminance
 round-trips per second, with saturated red weighted more heavily because it is the most provocative frequency
 for a photosensitive viewer. A film within budget passes and needs nothing.
