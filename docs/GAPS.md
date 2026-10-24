@@ -140,6 +140,42 @@ was mistaken for a code problem.
    does not, the wiring is genuinely wrong and the exception seen once on `checkTextLayout` deserves another look.
 3. Only then decide the precedence question: a timeline title and a project `artist` are both authored.
 
+## 6. RESOLVED: the title chain works, and the whitelist gate was the thing that was blind
+
+Section 5 concluded the `text.*` gates sampled too few instants. **That was wrong**, and the correction matters:
+`sampleTimes` defaults to `perShot = 3`, so it already samples inside every shot, the end card included.
+
+The real defect was one layer up. `checkText` reads **storyboard-resolved scene args**; `project.json::artist`
+is composed **at runtime**, so it never appears in those args and the gate could not see it. Proven by
+instrumenting `fillText` directly:
+
+```
+timeline literal removed, artist = "FROM PROJECT"
+strings drawn at t=7.5:  ["FROM PROJECT","replace me"]
+```
+
+So the four-layer wiring from section 4 was correct all along. It was never inert — it was never *observed*.
+
+**Fixes:**
+
+1. `text.whitelist` now also compares **the strings the page actually drew**, collected by the same `fillText`
+   instrumentation the layout gates use. Measured: `drawn 5, drawn unlisted 0` on the example, and a runtime-only
+   string is now caught:
+   ```
+   FAIL  text.whitelist  drawn 5, drawn unlisted 1
+         "FROM PROJECT" was drawn but is not in textWhitelist
+   ```
+2. `sampleTimes` was left alone, because it was never broken. Changing it would have been a fix for a symptom that
+   did not exist.
+
+**That new check immediately found a real, older bug:** the example's whitelist declared `7×5` while the `grid`
+scene draws `7×4`. The storyboard's declared args agreed with the whitelist, so both were wrong together and the
+gate passed. Now the pixels disagree with the declaration, and the gate fails — which is what it is for.
+
+A note on the fix itself: passing `×` through a PowerShell command line on this machine (code page 936) corrupted it
+twice. The value was finally written by a Node script using `\u00d7`, and verified by code point (`37,d7,34`).
+Console encoding is not a place to be brave.
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:

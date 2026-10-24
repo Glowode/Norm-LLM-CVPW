@@ -555,6 +555,31 @@ export async function runChecks(
       width: context.width ?? 1920,
       height: context.height ?? 1080,
     });
+    // `checkText` above reads STORYBOARD-RESOLVED ARGS, so a string composed at runtime is invisible to it. Proven:
+    // with `args.title` removed from the timeline and `project.json::artist` set to an unwhitelisted value, the page
+    // draws "FROM PROJECT" (captured by instrumenting fillText) while `text.whitelist` passed with `unlisted 0`.
+    // A whitelist that cannot see what was drawn is a whitelist in name only, so the drawn strings are checked
+    // here too, against the same list.
+    const whitelistOutcome = outcomes.find((outcome) => outcome.id === "text.whitelist");
+    if (whitelistOutcome) {
+      const listed = new Set(((await readJson(projectPaths(context.root).projectJson)) as { textWhitelist?: string[] }).textWhitelist ?? []);
+      const drawn = new Set<string>();
+      for (const frame of layout.frames) for (const text of frame.texts) if (text.text.trim() !== "") drawn.add(text.text);
+      const unlisted = [...drawn].filter((text) => !listed.has(text));
+      if (unlisted.length > 0) {
+        whitelistOutcome.ok = false;
+        whitelistOutcome.offenders = [
+          ...whitelistOutcome.offenders,
+          ...unlisted.slice(0, 12).map((text) => ({
+            code: "text.drawn-unlisted",
+            where: "rendered frame",
+            detail: `${JSON.stringify(text)} was drawn but is not in textWhitelist. This check reads the pixels' ` +
+              `own strings, so it catches text composed at runtime — which the storyboard's declared args cannot.`,
+          })),
+        ];
+      }
+      whitelistOutcome.measured = { ...whitelistOutcome.measured, drawn: drawn.size, "drawn unlisted": unlisted.length };
+    }
     if (should("text.safeArea")) {
       outcomes.push({
         id: "text.safeArea",
