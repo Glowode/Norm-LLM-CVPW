@@ -281,6 +281,10 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
   // `render.frameQuality` (0..1) belongs to the capture sink, not to the encoder. It was declared in the schema
   // and read by nothing; it is now read, and the reason it could not be read before is that it shared a field name
   // with the encoder CRF.
+  const projectRender = ((await readJson(projectPaths(options.root).projectJson)) as {
+    render?: { frameQuality?: number; frameCodec?: "jpeg" | "png" };
+  } | null)?.render;
+  const declaredFrameCodec = projectRender?.frameCodec;
   const declaredFrameQuality = ((await readJson(projectPaths(options.root).projectJson)) as {
     render?: { frameQuality?: number };
   } | null)?.render?.frameQuality;
@@ -311,6 +315,7 @@ export async function runRender(options: RenderCommandOptions): Promise<RenderOu
     // `--quality` is the ENCODER CRF, not the frame quality. The two were one field and are now separate.
     ...(options.quality !== undefined ? { encoderQuality: options.quality } : {}),
     frameQuality: declaredFrameQuality,
+    frameCodec: declaredFrameCodec,
     tempRoot: context.tempRoot,
     allowSoftware: context.allowSoftware,
     ...(options.onProgress

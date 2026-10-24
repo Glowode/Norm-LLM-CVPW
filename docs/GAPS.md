@@ -438,7 +438,7 @@ ran must never look like a check that passed.
 Still unread after this: `render.frameCodec` and `audio.sampleRate` — both declared knobs whose consumer does not
 exist yet.
 
-## 14. `render.frameCodec`: wired, then reverted — PNG capture dies after two frames
+## 14. `render.frameCodec` — FIXED. Three call sites each had their own opinion about the format
 
 The capture format was hard-coded to `jpeg` at **two independent call sites** (the screenshot call and the sink's
 `encoding`), so a project declaring `png` got jpeg and no indication its choice had been ignored. That is a cleaner
@@ -498,6 +498,40 @@ analysed than the project believes it is using*.
 **This finishes the leaf-path audit.** All five originally-unread paths are accounted for: `$schema` (meta),
 `audio.sampleRate` (now gated), `render.frameCodec` (wired, reverted, documented), `budgets.peakDiskGb` (now
 gated), `budgets.flashPerSecond` (now read from the project).
+
+### The third hard-coding, and why the error looked unrelated
+
+The first attempt died after two frames with no message. Capturing the full stderr to a file — instead of letting the
+progress printer swallow it — named it:
+
+```
+[vf#0:0] Terminating thread ... (Invalid data found when processing input)
+[out#0/mp4] Nothing was written into output file
+```
+
+ffmpeg was reading `f%06d.jpg` while the sink had written `f%06d.png`. The pattern comes from a **third** independent
+hard-coding:
+
+```ts
+const frameExtension = "jpg";   // decides the ffmpeg pattern
+```
+
+So the capture format was decided in **three places** — the screenshot call, the sink's `encoding`, and the ffmpeg
+pattern — and a project value had to reach all three or none. That is the structural finding, and it explains why a
+plausible two-site fix produced an error that mentioned neither the pattern nor the codec.
+
+Fixed by deriving one `codec` from `request.frameCodec` and letting all three read it:
+
+```
+jpeg  D8C3A39784   0.2 MiB
+png   67048CD17A   0.1 MiB
+```
+
+Both render, they differ, and `determinism.gold` still reports `ok=True, UNSTABLE=0, differing=0` under the default.
+
+**The lesson is about the error, not the fix.** "Invalid data found when processing input" reads like a corrupt
+codec; it was a filename pattern. The first attempt recorded three candidate causes and all three were wrong, because
+none of them could be tested without the message. Getting the message was the whole job.
 
 ## What this audit does NOT cover
 

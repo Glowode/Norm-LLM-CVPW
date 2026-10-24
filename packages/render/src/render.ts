@@ -65,6 +65,11 @@ export interface RenderRequest {
   /** Lead-in applied AT MUX TIME. */
   audioOffset?: number;
   /**
+   * Format of the CAPTURED FRAMES, from project render.frameCodec. Hard-coded to jpeg at two
+   * independent call sites before this, so a project declaring png got jpeg silently.
+   */
+  frameCodec?: "jpeg" | "png";
+  /**
    * Quality of the CAPTURED FRAMES, 0..1. This is a JPEG quality for the intermediate sequence, not an encoder
    * setting, and it belongs to the capture sink.
    */
@@ -182,7 +187,10 @@ export async function render(request: RenderRequest): Promise<RenderOutcome> {
 
   const server = await startStaticServer({ root: request.root });
   const frameDir = join(request.tempRoot, `frames-${process.pid}`);
-  const frameExtension = "jpg";
+  // NOT hard-coded: this decides the ffmpeg pattern (`f%06d.jpg`), so it must agree with what the sink writes.
+  // A png capture with a jpg pattern fails inside ffmpeg as "Invalid data found", which names neither the pattern
+  // nor the codec - the third site with its own opinion about the format, found the same way as the first two.
+  const frameExtension = (request.frameCodec ?? "jpeg") === "png" ? "png" : "jpg";
   const sink = createSink({
     dir: frameDir,
     from: request.from,
@@ -326,6 +334,8 @@ async function runChunk(
 ): Promise<{ renderer: string; software: boolean; registry: { scenes: string[]; styles: string[] } }> {
   const { browser, url, chunk, request, sink } = args;
   const fps = request.fps;
+  // The capture format, named once so the screenshot call and the sink cannot disagree about it.
+  const codec = request.frameCodec ?? "jpeg";
 
   browser.on("Runtime.consoleAPICalled", () => undefined);
   const pageErrors: string[] = [];
@@ -394,7 +404,7 @@ async function runChunk(
     // `--workers` came to change the output. See `Browser.flush` for the measurements.
     await browser.flush();
     const screenshot = await browser.screenshot({
-      format: "jpeg",
+      format: codec,
       quality: request.frameQuality ?? 0.94,
       timeoutMs: 180_000,
     });
@@ -411,7 +421,7 @@ async function runChunk(
     await sink.write({
       index: f,
       data: screenshot,
-      encoding: "jpeg",
+      encoding: codec,
       width: request.width,
       height: request.height,
       ms,
