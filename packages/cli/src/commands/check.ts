@@ -62,6 +62,7 @@ export const IMPLEMENTED_CHECKS = [
   "render.postApplied",
   "blender.version",
   "render.diskSpace",
+  "audio.declared",
 ] as const;
 export type CheckId = (typeof IMPLEMENTED_CHECKS)[number];
 
@@ -614,7 +615,8 @@ export async function runChecks(
     should("scene.perf") ||
     should("lyrics.alignment") ||
     should("render.registry") ||
-    should("render.diskSpace")
+    should("render.diskSpace") ||
+    should("audio.declared")
   ) {
     // Six gates over artifacts already on disk. One import, six pushes, milliseconds total.
     const staticGates = await import("./gates-static.js");
@@ -625,6 +627,7 @@ export async function runChecks(
     if (should("lyrics.alignment")) outcomes.push(await staticGates.gateLyricsAlignment(context.root));
     if (should("render.registry")) outcomes.push(await staticGates.gateRegistry(context.root, storyboard));
     if (should("render.diskSpace")) outcomes.push(await staticGates.gateDiskSpace(context.root));
+    if (should("audio.declared")) outcomes.push(await staticGates.gateAudioDeclared(context.root));
   }
   if (should("contract.validate")) {
     // The same registry `cvpw validate` uses, so the gate and the command cannot disagree about what a valid

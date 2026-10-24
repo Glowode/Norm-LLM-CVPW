@@ -288,3 +288,60 @@ export async function gateDiskSpace(root: string): Promise<StaticGate> {
           ],
   };
 }
+/**
+ * `audio.declared` — the facts a project declares about its audio match what the analysis measured.
+ *
+ * `project.json::audio.sampleRate` is documented in `docs/CONTRACTS.md` as "of the source file": it is not a knob,
+ * it is a recorded fact about the input. A recorded fact that nothing checks is worse than no record, because it
+ * ages silently — swap in a different master at a different rate and the declaration keeps asserting the old one.
+ *
+ * `analysis/audio.json` already carries both `sampleRate` (the source) and `analysisRate` (the 24 kHz the analysis
+ * works at), so this is a comparison rather than a measurement.
+ */
+export async function gateAudioDeclared(root: string): Promise<StaticGate> {
+  const base = { id: "audio.declared", title: "declared audio facts match the measured analysis" };
+  const paths = projectPaths(root);
+  if (!existsSync(paths.projectJson)) {
+    return { ...base, ok: true, measured: {}, offenders: [], skipped: "no project.json" };
+  }
+  const project = (await readJson(paths.projectJson)) as {
+    audio?: { file?: string; sampleRate?: number } | null;
+  };
+  if (!project.audio || typeof project.audio.file !== "string") {
+    return { ...base, ok: true, measured: {}, offenders: [], skipped: "the project declares no audio" };
+  }
+  if (!existsSync(paths.analysisAudio)) {
+    return {
+      ...base,
+      ok: true,
+      measured: { declared: String(project.audio.sampleRate ?? "(none)") },
+      offenders: [],
+      skipped: "no analysis/audio.json, so there is nothing measured to compare against",
+    };
+  }
+  const analysis = (await readJson(paths.analysisAudio)) as { sampleRate?: number; analysisRate?: number };
+  const declared = project.audio.sampleRate;
+  const measured = analysis.sampleRate;
+  const offenders: Offender[] = [];
+  if (typeof declared === "number" && typeof measured === "number" && declared !== measured) {
+    offenders.push({
+      code: "audio.rate-mismatch",
+      where: "project.json::audio.sampleRate",
+      detail:
+        `declared ${declared} Hz but the analysed file is ${measured} Hz. The declaration is a recorded fact about ` +
+        `the input (CONTRACTS.md), so a mismatch means one of the two is stale — most likely a different master ` +
+        `was analysed than the project believes it is using.`,
+    });
+  }
+  return {
+    ...base,
+    ok: offenders.length === 0,
+    measured: {
+      declared: typeof declared === "number" ? `${declared} Hz` : "(not declared)",
+      measured: typeof measured === "number" ? `${measured} Hz` : "(not recorded)",
+      "analysis rate": typeof analysis.analysisRate === "number" ? `${analysis.analysisRate} Hz` : "(not recorded)",
+    },
+    offenders,
+    ...(typeof declared === "number" ? {} : { skipped: "the project does not declare a sampleRate to check" }),
+  };
+}

@@ -97,6 +97,8 @@ is the one that found the post-processing chain which had never executed in the 
 gate in the suite was the one least documented, which is exactly how a suite drifts away from its own rules.
 | `render.diskSpace` | 5 | free space on the project volume is at least `project.json::budgets.peakDiskGb` | `cvpw check` | `disk.too-full <volume>` | yes |
 
+| `audio.declared` | 2 | `project.json::audio.sampleRate` equals the rate the analysis measured | `cvpw check` | `audio.rate-mismatch <rate>` | yes |
+
 **`flash.rate` is two-tier, and the second tier is not a warning.** The budget is 3 large-area luminance
 round-trips per second, with saturated red weighted more heavily because it is the most provocative frequency
 for a photosensitive viewer. A film within budget passes and needs nothing.

@@ -471,6 +471,34 @@ It stops after two frames, and the error is swallowed by the progress output —
 `render.frameCodec` therefore remains declared and unread. It is the last of the three, and unlike `audio.sampleRate`
 it is clearly wanted — the schema says so, the example sets it, and the renderer simply disagrees.
 
+## 15. `audio.sampleRate` is a RECORDED FACT, not a knob — and it now checks itself
+
+The last of the three unread paths, and reading the contract changed the conclusion:
+
+```
+"sampleRate": 48000,                 // of the source file     (CONTRACTS.md:198)
+```
+
+It is not a setting. It is a **recorded fact about the input**, and a recorded fact that nothing verifies is worse
+than no record at all — swap in a different master and the declaration keeps confidently asserting the old rate.
+
+`analysis/audio.json` already carries both `sampleRate` (the source) and `analysisRate` (the 24 kHz the analysis
+works at), so this needed a comparison, not a measurement.
+
+New gate `audio.declared`:
+
+| declared | measured | verdict |
+|---|---|---|
+| 48000 Hz | 48000 Hz | **ok** |
+| 44100 Hz | 48000 Hz | **FAIL**, `audio.rate-mismatch` |
+
+The failure message names the likely cause rather than the symptom: a mismatch usually means a *different master was
+analysed than the project believes it is using*.
+
+**This finishes the leaf-path audit.** All five originally-unread paths are accounted for: `$schema` (meta),
+`audio.sampleRate` (now gated), `render.frameCodec` (wired, reverted, documented), `budgets.peakDiskGb` (now
+gated), `budgets.flashPerSecond` (now read from the project).
+
 ## What this audit does NOT cover
 
 Being explicit about the boundary is the point of this file, so:
