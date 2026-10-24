@@ -80,14 +80,42 @@ existed, so the change is only visible where a project asked for it.
 
 ---
 
-## 3. `project.json::vectors` is declared and read by nothing
+## 3. FIXED: `project.json::vectors` was a declared feature, not a dead key
 
 ```json
 "vectors": { "grid": "beats" }
 ```
 
-Declared in the schema, present in the example, mentioned nowhere in code. Two candidates: it is a leftover from a
-design that moved on, or a feature nobody built. Either way it is currently a key that validates and does nothing.
+The audit called this dead by reading the **schema**. `docs/CONTRACTS.md:77` documents the intent the schema
+omits:
+
+```
+"vectors": { "grid": "none" }     // none | beats | bars -- planning drawing aid
+```
+
+So it was never dead — it was **unimplemented**, and that distinction decides whether to build it or delete it.
+Reading only one of the two documents would have got it wrong, which is the same shape as every other finding in
+this file.
+
+**Implemented:** `Timebase.beatTimes` and `Timebase.barList` are public read-only accessors; `EngineOptions.grid`
+draws beat lines (thin), bar lines (thick) and a playhead inside `drawOverlay`. Only the overlay draws them, so a
+master is unaffected by construction. `?grid=beats|bars|none` overrides the project value, so a reviewer can turn
+the guides on without editing `project.json`.
+
+Verified by hashing one frame under both settings, because the `grid` scene draws its own lattice and a screenshot
+cannot tell the two apart:
+
+| `?grid=` | frame hash |
+|---|---|
+| `none` | `42c09b1c` |
+| `beats` | `b4604ef0` |
+
+**A detour worth recording:** making the guides appear first failed to boot the page. The error named
+`main.js`, which parsed cleanly; the real fault was `timeline.js`, damaged by an earlier string-replacement in this
+session and invisible until a module import failed. The template is the source of truth for engine files, so all
+three projects were re-synced and every `engine/**/*.js` now passes `node --check`. A broken engine file fails at
+import, and the message points at the importer — a bad clue in a good place.
+
 
 ## 4. PARTLY FIXED: `project.json::artist` and `::titleSub`
 
