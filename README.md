@@ -153,11 +153,25 @@ Each `reference/` tree keeps its own licence and history. Nothing here is copied
 
 ## Status
 
-**v0.1 — the spine.** Seeded generators, the time-expression grammar, the plugin registry, the CLI
-surface, the schemas and the vertical slice (synthetic click track → analysis → deterministic stills →
-MP4 → QA report). Deliberately **not** in v0.1: asset generation and chroma-key, lyric forced
-alignment, the WebGL2 post chain, the Blender bridge, and the style registry's first real styles. Their
-contracts are reserved so that adding them does not break v0.1 artifacts.
+**v0.1 - the spine, and the limbs.** Seeded generators, the time-expression grammar, the plugin registry,
+the CLI surface, the schemas, and the vertical slice (synthetic click track -> analysis -> deterministic
+stills -> MP4 -> QA report). Phase 2 landed on the same contracts without breaking a v0.1 artefact:
+procedural asset generation with a hash written back to the manifest, chroma keying as a pure function,
+the WebGL2 post chain, the Blender bridge (discovery, version gate, batched render, frame adoption), and
+lyric alignment as policy plus an abstract recognition seam with no adapter shipped.
+
+**All 31 gates are implemented**, the example renders end to end, and the first film made with the
+framework is its own promotional video - 140 seconds, 4200 frames, delivered, with every claim in the
+film pointing at the command that produced it.
 
 See [`docs/PROGRESS.md`](./docs/PROGRESS.md) for what is done, what is not, and every place the work
-departs from the spec — which is the same standard the framework demands of its users.
+departs from the spec - which is the same standard the framework demands of its users.
+
+---
+
+## Licence
+
+MIT. See [`LICENSE`](./LICENSE).
+
+The framework is MIT-licensed; **the films you make with it are yours**. Nothing in the pipeline claims
+any interest in your audio, your lyrics, or your footage - and by default it will not even commit them.

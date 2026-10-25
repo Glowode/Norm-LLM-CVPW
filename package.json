@@ -27,5 +27,13 @@
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Glowode/Norm-LLM-CVPW.git"
+  },
+  "homepage": "https://github.com/Glowode/Norm-LLM-CVPW#readme",
+  "bugs": {
+    "url": "https://github.com/Glowode/Norm-LLM-CVPW/issues"
   }
 }

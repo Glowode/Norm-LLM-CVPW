@@ -91,7 +91,7 @@ Definitions are binding; the framework uses these words in exactly these senses.
 | **Frame hash** | A deterministic content hash of a rendered frame at a given time. The determinism witness. |
 | **Gate** | A check with a numeric threshold that must pass before the next stage. |
 | **Checkpoint** | A point where a human must be shown something before work continues. |
-| **Fold** | `F:\AI\Norm-LLM-CVPW` — this framework repository. Distinct from a *project*. |
+| **Fold** | `<framework-repository>` — this framework repository. Distinct from a *project*. |
 
 ---
 
