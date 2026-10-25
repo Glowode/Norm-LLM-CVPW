@@ -12,6 +12,7 @@
  *   process is ASCII-only.
  */
 
+import { fileURLToPath } from "node:url";
 import { spawn, type SpawnOptions } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
@@ -545,7 +546,7 @@ export function findProjectRoot(start: string = process.cwd()): string | null {
 /** The framework root, derived from this module's location — never from the working directory. */
 export function frameworkRoot(): string {
   // dist/shared.js -> packages/cli -> packages -> <root>
-  const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
+  const here = dirname(fileURLToPath(import.meta.url));
   return resolve(here, "..", "..", "..");
 }
 
